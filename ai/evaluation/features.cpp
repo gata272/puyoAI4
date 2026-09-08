@@ -96,6 +96,78 @@ double getWell(const std::array<int, BOARD_WIDTH>& h) {
     return well;
 }
 
+
+
+double getChainPotential(const Board& board) {
+    // Measures how easily existing 2/3-puyo groups can be extended without
+    // immediately firing unrelated groups.  A size-3 group is much more
+    // valuable because one adjacent puyo can trigger it.
+    bool visited[BOARD_WIDTH][VISIBLE_HEIGHT]{};
+    double potential = 0.0;
+
+    for (int y = 0; y < VISIBLE_HEIGHT; ++y) {
+        for (int x = 0; x < BOARD_WIDTH; ++x) {
+            if (visited[x][y] || !isColor(board.get(x, y))) continue;
+
+            const Cell c = board.get(x, y);
+            std::vector<std::pair<int, int>> cells;
+            std::vector<std::pair<int, int>> stack{{x, y}};
+            visited[x][y] = true;
+
+            while (!stack.empty()) {
+                const auto [cx, cy] = stack.back();
+                stack.pop_back();
+                cells.push_back({cx, cy});
+
+                constexpr int dx[4] = {1, -1, 0, 0};
+                constexpr int dy[4] = {0, 0, 1, -1};
+                for (int d = 0; d < 4; ++d) {
+                    const int nx = cx + dx[d];
+                    const int ny = cy + dy[d];
+                    if (nx < 0 || nx >= BOARD_WIDTH ||
+                        ny < 0 || ny >= VISIBLE_HEIGHT ||
+                        visited[nx][ny]) continue;
+                    if (board.get(nx, ny) == c) {
+                        visited[nx][ny] = true;
+                        stack.push_back({nx, ny});
+                    }
+                }
+            }
+
+            const int n = static_cast<int>(cells.size());
+            if (n < 2 || n > 3) continue;
+
+            bool extension[BOARD_WIDTH][VISIBLE_HEIGHT]{};
+            int extensionCount = 0;
+            for (const auto& [cx, cy] : cells) {
+                constexpr int dx[4] = {1, -1, 0, 0};
+                constexpr int dy[4] = {0, 0, 1, -1};
+                for (int d = 0; d < 4; ++d) {
+                    const int nx = cx + dx[d];
+                    const int ny = cy + dy[d];
+                    if (nx < 0 || nx >= BOARD_WIDTH ||
+                        ny < 0 || ny >= VISIBLE_HEIGHT) continue;
+                    if (board.get(nx, ny) == Cell::Empty && !extension[nx][ny]) {
+                        extension[nx][ny] = true;
+                        ++extensionCount;
+                    }
+                }
+            }
+
+            // A 3-group with many possible attachment cells is a strong
+            // candidate for a future trigger.  A 2-group is useful but less
+            // urgent.  The cap prevents wide-open flat boards from dominating.
+            if (n == 3) {
+                potential += 6.0 + std::min(extensionCount, 6) * 0.75;
+            } else {
+                potential += 2.0 + std::min(extensionCount, 6) * 0.25;
+            }
+        }
+    }
+
+    return potential;
+}
+
 double getBump(const std::array<int, BOARD_WIDTH>& h) {
     double bump = 0.0;
 
@@ -158,6 +230,7 @@ Features extractStaticFeatures(const Board& board) {
     f.side = std::max(left, right) - h[2];
 
     f.form = bestHumanFormScore(board);
+    f.chainPotential = getChainPotential(board);
 
     return f;
 }

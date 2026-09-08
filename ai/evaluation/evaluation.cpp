@@ -141,6 +141,7 @@ double evaluate(
     const Features f = extractStaticFeatures(board);
     double score =
         f.form * weights.form +
+        f.chainPotential * weights.chainPotential +
         f.shape * weights.shape +
         f.well * weights.well +
         f.bump * weights.bump +

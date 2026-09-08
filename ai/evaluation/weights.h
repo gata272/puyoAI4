@@ -12,6 +12,7 @@ struct Weights {
     double well;
     double bump;
     double form;
+    double chainPotential;
 
     double link2;
     double link3;

@@ -14,6 +14,7 @@ struct Features {
     double well = 0.0;
     double bump = 0.0;
     double form = 0.0;
+    double chainPotential = 0.0;
 
     double link2 = 0.0;
     double link3 = 0.0;
