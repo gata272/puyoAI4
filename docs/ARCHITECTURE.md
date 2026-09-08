@@ -1,4 +1,4 @@
-# PuyoAI3 architecture
+# PuyoAI architecture
 
 ## Runtime flow
 
