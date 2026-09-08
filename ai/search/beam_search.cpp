@@ -2,6 +2,7 @@
 
 #include "move_generator.h"
 #include "../evaluation/evaluation.h"
+#include "../evaluation/trigger_route.h"
 #include "../simulation/simulator.h"
 
 #include <algorithm>
@@ -21,6 +22,7 @@ struct Node {
     Move root;
     double score = 0.0;
     int maxChain = 0;
+    int triggerRoute = 0;
     bool gameOver = false;
 };
 
@@ -33,8 +35,17 @@ constexpr double kDeathPenalty = 250000.0;
 // remains responsible for constructing the chain before it fires.
 double chainReward(int chains) {
     if (chains <= 0) return 0.0;
+
+    // Do not let the search repeatedly cash out 2-3 chains.  Small chains are
+    // treated as destructive early firing; the useful reward starts at 5.
+    if (chains <= 3) {
+        const double c = static_cast<double>(chains);
+        return -120000.0 * c * c;
+    }
+    if (chains == 4) return 25000.0;
+
     const double c = static_cast<double>(chains);
-    return kChainReward * c * c * c * c;
+    return 20000.0 * c * c * c * c;
 }
 
 std::vector<Node> expandNode(
@@ -69,6 +80,7 @@ std::vector<Node> expandNode(
         candidate.root = parent.root.valid ? parent.root : move;
         candidate.score = parent.score + local;
         candidate.maxChain = std::max(parent.maxChain, sim.chains);
+        candidate.triggerRoute = std::max(parent.triggerRoute, triggerRouteLength(sim.board));
         candidate.gameOver = deathMove;
 
         if (deathMove) death.push_back(std::move(candidate));
@@ -92,15 +104,12 @@ bool betterForBeam(const Node& a, const Node& b) {
 void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
     if (static_cast<int>(candidates.size()) <= beamWidth) return;
 
-    // Keep a small elite set by observed chain count as well as the normal
-    // heuristic elite. This reduces the classic beam-search failure mode in
-    // which a quiet long-chain construction is discarded before it has time
-    // to fire. Duplicates are removed by root/board identity only when the
-    // same object happens to be selected twice; exact board hashing is not
-    // required for this small beam.
+    // The ordinary evaluator remains the main ranking signal.  In addition,
+    // preserve a small route elite so that a quiet A->B->C trigger structure
+    // is not discarded merely because it scores less than a short-term shape.
     std::sort(candidates.begin(), candidates.end(), betterForBeam);
 
-    const int chainSlots = std::max(1, beamWidth / 4);
+    const int routeSlots = std::max(1, beamWidth / 4);
     std::vector<Node> selected;
     selected.reserve(static_cast<std::size_t>(beamWidth));
 
@@ -108,6 +117,7 @@ void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
         for (const auto& existing : selected) {
             if (existing.root.x == node.root.x &&
                 existing.root.rotation == node.root.rotation &&
+                existing.triggerRoute == node.triggerRoute &&
                 existing.maxChain == node.maxChain &&
                 existing.score == node.score) {
                 return;
@@ -116,13 +126,16 @@ void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
         selected.push_back(node);
     };
 
-    auto chainRank = candidates;
-    std::sort(chainRank.begin(), chainRank.end(), [](const Node& a, const Node& b) {
+    auto routeRank = candidates;
+    std::sort(routeRank.begin(), routeRank.end(), [](const Node& a, const Node& b) {
+        if (a.triggerRoute != b.triggerRoute) return a.triggerRoute > b.triggerRoute;
         if (a.maxChain != b.maxChain) return a.maxChain > b.maxChain;
         return a.score > b.score;
     });
-    for (int i = 0; i < chainSlots && i < static_cast<int>(chainRank.size()); ++i) {
-        addIfNew(chainRank[static_cast<std::size_t>(i)]);
+    for (int i = 0; i < routeSlots && i < static_cast<int>(routeRank.size()); ++i) {
+        if (routeRank[static_cast<std::size_t>(i)].triggerRoute >= 2) {
+            addIfNew(routeRank[static_cast<std::size_t>(i)]);
+        }
     }
 
     for (const auto& node : candidates) {
