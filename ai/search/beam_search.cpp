@@ -5,105 +5,139 @@
 #include "../simulation/simulator.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
-#include <utility>
+#include <vector>
 
 namespace puyo {
-
 namespace {
 
+// This is a true beam search: every depth expands the current global beam and
+// then prunes back to `beamWidth`.  The previous implementation recursively
+// expanded a beam independently from every node, which grew roughly as
+// width^depth and became impractical once the lookahead was extended.
 struct Node {
     Board board;
-    double score = 0.0;
     Move root;
+    double score = 0.0;
+    int maxChain = 0;
+    bool gameOver = false;
 };
 
-double searchNode(
-    const Board& board,
-    const std::vector<PuyoPair>& pieces,
-    int depth,
-    int maxDepth,
-    int beamWidth,
+constexpr double kDiscount = 0.85;
+constexpr double kChainReward = 15000.0;
+constexpr double kDeathPenalty = 250000.0;
+
+// Immediate chain reward is deliberately nonlinear.  It makes an actual
+// long chain dominate small scoring differences, while the static evaluator
+// remains responsible for constructing the chain before it fires.
+double chainReward(int chains) {
+    if (chains <= 0) return 0.0;
+    const double c = static_cast<double>(chains);
+    return kChainReward * c * c * c * c;
+}
+
+std::vector<Node> expandNode(
+    const Node& parent,
+    const PuyoPair& pair,
     const Weights& weights,
-    const Move& rootMove
+    int nextDepth,
+    int maxDepth
 ) {
-    if (depth >= maxDepth || depth >= static_cast<int>(pieces.size())) {
-        EvaluationContext ctx;
-        if (depth < static_cast<int>(pieces.size())) {
-            ctx.lookahead.assign(pieces.begin() + depth, pieces.end());
-        }
-        ctx.quiescenceDepth = 3;
-        return evaluate(board, weights, ctx);
-    }
-
-    const auto moves = generateLegalMoves(board, pieces[depth]);
-    if (moves.empty()) return -1e15;
-
-    std::vector<Node> candidates;
-    candidates.reserve(moves.size());
+    const auto moves = generateLegalMoves(parent.board, pair);
+    std::vector<Node> safe;
+    std::vector<Node> death;
+    safe.reserve(moves.size());
+    death.reserve(moves.size());
 
     for (const Move& move : moves) {
-        SimulationResult sim =
-            Simulator::drop(board, pieces[depth], move);
+        const SimulationResult sim = Simulator::drop(
+            parent.board, pair, move);
 
-        if (sim.gameOver && !sim.allClear) continue;
-
+        const bool deathMove = sim.gameOver && !sim.allClear;
         EvaluationContext ctx;
-        if (depth + 1 < static_cast<int>(pieces.size())) {
-            ctx.lookahead.assign(
-                pieces.begin() + depth + 1,
-                pieces.end()
-            );
-        }
-        ctx.quiescenceDepth = (depth + 1 >= maxDepth) ? 3 : 0;
+        // Only terminal candidates pay the expensive ama-style quiet search.
+        ctx.quiescenceDepth = (nextDepth >= maxDepth) ? 3 : 0;
 
-        double score =
-            evaluate(sim.board, weights, ctx) +
-            actionPenalty(board, sim, move, weights);
+        double local = evaluate(sim.board, weights, ctx)
+                     + actionPenalty(parent.board, sim, move, weights)
+                     + chainReward(sim.chains);
+        if (deathMove) local -= kDeathPenalty;
 
-        candidates.push_back({
-            sim.board,
-            score,
-            depth == 0 ? move : rootMove
-        });
+        Node candidate;
+        candidate.board = sim.board;
+        candidate.root = parent.root.valid ? parent.root : move;
+        candidate.score = parent.score + local;
+        candidate.maxChain = std::max(parent.maxChain, sim.chains);
+        candidate.gameOver = deathMove;
+
+        if (deathMove) death.push_back(std::move(candidate));
+        else safe.push_back(std::move(candidate));
     }
 
-    if (candidates.empty()) return -1e15;
+    // Critical fallback rule: death placements are ignored whenever at least
+    // one safe placement exists. If none exists, return the least-bad death
+    // candidates so the AI can still place the current pair and let the game
+    // end naturally instead of producing an invalid/no-op move.
+    if (!safe.empty()) return safe;
+    return death;
+}
 
-    std::sort(
-        candidates.begin(),
-        candidates.end(),
-        [](const Node& a, const Node& b) {
-            return a.score > b.score;
+bool betterForBeam(const Node& a, const Node& b) {
+    if (a.score != b.score) return a.score > b.score;
+    return a.maxChain > b.maxChain;
+}
+
+
+void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
+    if (static_cast<int>(candidates.size()) <= beamWidth) return;
+
+    // Keep a small elite set by observed chain count as well as the normal
+    // heuristic elite. This reduces the classic beam-search failure mode in
+    // which a quiet long-chain construction is discarded before it has time
+    // to fire. Duplicates are removed by root/board identity only when the
+    // same object happens to be selected twice; exact board hashing is not
+    // required for this small beam.
+    std::sort(candidates.begin(), candidates.end(), betterForBeam);
+
+    const int chainSlots = std::max(1, beamWidth / 4);
+    std::vector<Node> selected;
+    selected.reserve(static_cast<std::size_t>(beamWidth));
+
+    auto addIfNew = [&](const Node& node) {
+        for (const auto& existing : selected) {
+            if (existing.root.x == node.root.x &&
+                existing.root.rotation == node.root.rotation &&
+                existing.maxChain == node.maxChain &&
+                existing.score == node.score) {
+                return;
+            }
         }
-    );
+        selected.push_back(node);
+    };
 
-    if (static_cast<int>(candidates.size()) > beamWidth) {
-        candidates.resize(beamWidth);
+    auto chainRank = candidates;
+    std::sort(chainRank.begin(), chainRank.end(), [](const Node& a, const Node& b) {
+        if (a.maxChain != b.maxChain) return a.maxChain > b.maxChain;
+        return a.score > b.score;
+    });
+    for (int i = 0; i < chainSlots && i < static_cast<int>(chainRank.size()); ++i) {
+        addIfNew(chainRank[static_cast<std::size_t>(i)]);
     }
 
-    double best = -1e15;
-
-    for (const auto& candidate : candidates) {
-        double value = candidate.score;
-
-        if (depth + 1 < maxDepth &&
-            depth + 1 < static_cast<int>(pieces.size())) {
-            value += 0.85 * searchNode(
-                candidate.board,
-                pieces,
-                depth + 1,
-                maxDepth,
-                beamWidth,
-                weights,
-                candidate.root
-            );
-        }
-
-        best = std::max(best, value);
+    for (const auto& node : candidates) {
+        if (static_cast<int>(selected.size()) >= beamWidth) break;
+        addIfNew(node);
     }
 
-    return best;
+    candidates.swap(selected);
+}
+
+bool betterFinal(const Node& a, const Node& b) {
+    // Research objective: maximize the largest single chain first. The
+    // heuristic score is only a tie-breaker between equal maximum chains.
+    if (a.maxChain != b.maxChain) return a.maxChain > b.maxChain;
+    return a.score > b.score;
 }
 
 Move chooseRoot(
@@ -115,46 +149,67 @@ Move chooseRoot(
 ) {
     if (pieces.empty()) return {-1, 0, false};
 
-    const auto moves = generateLegalMoves(board, pieces[0]);
+    const int horizon = std::min(
+        maxDepth,
+        static_cast<int>(pieces.size())
+    );
+    if (horizon <= 0) return {-1, 0, false};
 
-    double bestScore = -1e15;
-    Move best{-1, 0, false};
+    // The root is expanded exactly once, then the same beam is propagated
+    // globally through subsequent pieces.
+    Node root;
+    root.board = board;
 
-    for (const Move& move : moves) {
-        SimulationResult sim =
-            Simulator::drop(board, pieces[0], move);
+    std::vector<Node> beam = {root};
 
-        if (sim.gameOver && !sim.allClear) continue;
+    for (int depth = 0; depth < horizon; ++depth) {
+        std::vector<Node> next;
+        // At most beamWidth * 24 legal placements on a standard 6-column
+        // board. Reserve generously without allocating per child later.
+        next.reserve(static_cast<std::size_t>(beamWidth) * 24U);
 
-        EvaluationContext ctx;
-        if (pieces.size() > 1) {
-            ctx.lookahead.assign(pieces.begin() + 1, pieces.end());
-        }
-        ctx.quiescenceDepth = 3;
-
-        double score =
-            evaluate(sim.board, weights, ctx) +
-            actionPenalty(board, sim, move, weights);
-
-        if (pieces.size() > 1) {
-            score += 0.85 * searchNode(
-                sim.board,
-                pieces,
-                1,
-                maxDepth,
-                beamWidth,
+        for (const Node& node : beam) {
+            auto children = expandNode(
+                node,
+                pieces[depth],
                 weights,
-                move
+                depth + 1,
+                horizon
             );
+            for (auto& child : children) {
+                next.push_back(std::move(child));
+            }
         }
 
-        if (score > bestScore) {
-            bestScore = score;
-            best = move;
+        if (next.empty()) return {-1, 0, false};
+
+        pruneBeam(next, beamWidth);
+
+        beam.swap(next);
+
+        // Once every surviving branch is a game-over placement, there is no
+        // future piece to search. Keep the best one and finish.
+        bool allDead = true;
+        for (const auto& node : beam) {
+            if (!node.gameOver) {
+                allDead = false;
+                break;
+            }
         }
+        if (allDead) break;
     }
 
-    return best;
+    const auto best = std::max_element(
+        beam.begin(), beam.end(),
+        [](const Node& a, const Node& b) {
+            return betterFinal(b, a);
+        }
+    );
+
+    if (best == beam.end() || !best->root.valid) {
+        return {-1, 0, false};
+    }
+    return best->root;
 }
 
 } // namespace
@@ -166,13 +221,9 @@ Move BeamSearch::chooseMove(
     int depth,
     int beamWidth
 ) const {
-    return chooseRoot(
-        board,
-        pieces,
-        weights,
-        depth,
-        beamWidth
-    );
+    return chooseRoot(board, pieces, weights,
+                      std::max(1, depth),
+                      std::max(1, beamWidth));
 }
 
 } // namespace puyo
