@@ -49,6 +49,10 @@ int ai_choose_move(
     int sub4, int main4,
     int sub5, int main5,
     int sub6, int main6,
+    int sub7, int main7,
+    int sub8, int main8,
+    int sub9, int main9,
+    int sub10, int main10,
     int depth, int beamWidth
 ) {
     std::vector<puyo::PuyoPair> pieces = {
@@ -57,7 +61,11 @@ int ai_choose_move(
         {main3, sub3},
         {main4, sub4},
         {main5, sub5},
-        {main6, sub6}
+        {main6, sub6},
+        {main7, sub7},
+        {main8, sub8},
+        {main9, sub9},
+        {main10, sub10}
     };
 
     puyo::Move move = g_ai.chooseMove(
