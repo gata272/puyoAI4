@@ -14,13 +14,13 @@
 
 using namespace puyo;
 
-struct Vec { double v[15]; };
+struct Vec { double v[16]; };
 
 Vec toVec(const Weights& w) {
-    return {{w.chain,w.y,w.key,w.chi,w.shape,w.well,w.bump,w.form,w.link2,w.link3,w.waste14,w.side,w.nuisance,w.tear,w.waste}};
+    return {{w.chain,w.y,w.key,w.chi,w.shape,w.well,w.bump,w.form,w.chainPotential,w.link2,w.link3,w.waste14,w.side,w.nuisance,w.tear,w.waste}};
 }
 Weights fromVec(const Vec& x) {
-    return {x.v[0],x.v[1],x.v[2],x.v[3],x.v[4],x.v[5],x.v[6],x.v[7],x.v[8],x.v[9],x.v[10],x.v[11],x.v[12],x.v[13],x.v[14]};
+    return {x.v[0],x.v[1],x.v[2],x.v[3],x.v[4],x.v[5],x.v[6],x.v[7],x.v[8],x.v[9],x.v[10],x.v[11],x.v[12],x.v[13],x.v[14],x.v[15]};
 }
 
 std::vector<PuyoPair> queueFor(std::mt19937& rng, int n) {
@@ -37,15 +37,15 @@ double evaluateWeights(const Vec& x, int seed, int games, int turns) {
     double objective=0;
     for(int g=0;g<games;++g){
         Board board;
-        auto q=queueFor(rng,turns+3);
-        int score=0, chains=0, survived=0;
+        auto q=queueFor(rng,turns+6);
+        int score=0, chains=0, survived=0, maxChain=0;
         for(int t=0;t<turns;++t){
-            std::vector<PuyoPair> pieces(q.begin()+t,q.begin()+std::min<int>(q.size(),t+3));
+            std::vector<PuyoPair> pieces(q.begin()+t,q.begin()+std::min<int>(q.size(),t+6));
             Move m=search.chooseMove(board,pieces,w,2,4);
             if(!m.valid) break;
             auto sim=Simulator::drop(board,pieces[0],m);
             if(sim.gameOver && !sim.allClear) break;
-            board=sim.board; score+=sim.score; chains+=sim.chains; ++survived;
+            board=sim.board; score+=sim.score; chains+=sim.chains; maxChain=std::max(maxChain, sim.chains); ++survived;
         }
         const auto h = board.heights();
         double heightPenalty = 0.0;
@@ -53,7 +53,7 @@ double evaluateWeights(const Vec& x, int seed, int games, int turns) {
         const Features finalF = extractStaticFeatures(board);
         // The terminal board terms keep SPSA informative even on short
         // samples where no full chain happens to occur.
-        objective += score + 1500.0*chains + 250.0*survived
+        objective += 10000.0*maxChain + 1000.0*chains + 250.0*survived
                    - 35.0*heightPenalty
                    + 40.0*finalF.link2 + 70.0*finalF.link3
                    - 100.0*finalF.nuisance;
@@ -62,16 +62,16 @@ double evaluateWeights(const Vec& x, int seed, int games, int turns) {
 }
 
 void clamp(Vec& x) {
-    static const double lo[15]={100,-500,-1000,0,-500,-500,-500,-100,-500,-500,-200,-500,-1000,-1000,-1000};
-    static const double hi[15]={5000,1000,500,1000,500,500,500,500,1000,1000,200,500,0,0,0};
-    for(int i=0;i<15;++i) x.v[i]=std::max(lo[i],std::min(hi[i],x.v[i]));
+    static const double lo[16]={100,-500,-1000,0,-500,-500,-500,-100,-500,-500,-500,-200,-500,-1000,-1000,-1000};
+    static const double hi[16]={5000,1000,500,1000,500,500,500,500,1000,1000,1000,200,500,0,0,0};
+    for(int i=0;i<16;++i) x.v[i]=std::max(lo[i],std::min(hi[i],x.v[i]));
 }
 
 void writeJson(const Vec& x,const std::string& path){
     std::ofstream o(path);
-    const char* names[]={"chain","y","key","chi","shape","well","bump","form","link_2","link_3","waste_14","side","nuisance","tear","waste"};
+    const char* names[]={"chain","y","key","chi","shape","well","bump","form","chain_potential","link_2","link_3","waste_14","side","nuisance","tear","waste"};
     o<<"{\n  \"profile\": \"spsa\",\n  \"weights\": {\n";
-    for(int i=0;i<15;++i) o<<"    \""<<names[i]<<"\": "<<std::llround(x.v[i])<<(i==14?"\n":" ,\n");
+    for(int i=0;i<16;++i) o<<"    \""<<names[i]<<"\": "<<std::llround(x.v[i])<<(i==15?"\n":" ,\n");
     o<<"  }\n}\n";
 }
 
@@ -95,13 +95,13 @@ int main(int argc,char**argv){
         const double ak=a/std::pow(k+1+A,alpha);
         const double ck=c/std::pow(k+1,gamma);
         Vec plus=x, minus=x;
-        int delta[15];
-        for(int i=0;i<15;++i){ delta[i]=(rng()&1)?1:-1; plus.v[i]+=ck*delta[i]; minus.v[i]-=ck*delta[i]; }
+        int delta[16];
+        for(int i=0;i<16;++i){ delta[i]=(rng()&1)?1:-1; plus.v[i]+=ck*delta[i]; minus.v[i]-=ck*delta[i]; }
         clamp(plus); clamp(minus);
         const int commonSeed = seed + k*17;
         const double yp=evaluateWeights(plus,commonSeed,games,turns);
         const double ym=evaluateWeights(minus,commonSeed,games,turns);
-        for(int i=0;i<15;++i) x.v[i]+=ak*((yp-ym)/(2*ck*delta[i]));
+        for(int i=0;i<16;++i) x.v[i]+=ak*((yp-ym)/(2*ck*delta[i]));
         clamp(x);
         const double y=evaluateWeights(x,commonSeed,games,turns);
         if(y>best){best=y;bestX=x;}

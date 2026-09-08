@@ -26,10 +26,10 @@ Result run(int depth, int width, int games, int turns) {
     Result total;
     for (int g=0; g<games; ++g) {
         Board board;
-        auto q = makeQueue(rng, turns+3);
+        auto q = makeQueue(rng, turns+6);
         int score=0, chains=0;
         for (int t=0; t<turns; ++t) {
-            std::vector<PuyoPair> pieces(q.begin()+t, q.begin()+std::min<int>(q.size(),t+3));
+            std::vector<PuyoPair> pieces(q.begin()+t, q.begin()+std::min<int>(q.size(),t+6));
             Move m=search.chooseMove(board,pieces,w,depth,width);
             if (!m.valid) break;
             auto sim=Simulator::drop(board,pieces[0],m);
