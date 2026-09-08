@@ -22,8 +22,9 @@
 </head>
 <body>
 
-    <div id="setting-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.85); z-index: 1000; flex-direction: column; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;">
-        <div class="info-box" style="max-width: 400px; width: 100%; padding: 20px;">
+    <div id="setting-overlay" style="display: none; position: fixed; inset: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.85); z-index: 1000; flex-direction: column; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; overflow: hidden;">
+        <div id="setting-box" class="info-box" style="position: relative; max-width: 400px; width: 100%; max-height: 100%; padding: 20px; box-sizing: border-box; overflow-y: auto;">
+            <button id="setting-close-btn" onclick="toggleSettingMode()" aria-label="設定を閉じる" style="position: fixed; top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); z-index: 1002; background-color: #457b9d; color: white; border: none; border-radius: 50%; width: 42px; height: 42px; font-size: 1.25em; font-weight: bold; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5);">×</button>
             <h2 style="font-size: 1.2em; margin-bottom: 20px;">設定</h2>
 
             <div style="margin: 20px 0; text-align: left;">
@@ -43,6 +44,15 @@
             </div>
 
             <p style="font-size: 0.8em; color: #888; margin-top: 10px;">※値が小さいほどアニメーションが速くなります。</p>
+
+            <div class="ai-search-settings" style="margin: 20px 0; text-align: left; border-top: 1px solid #444; padding-top: 15px;">
+                <h3 style="font-size: 1em; margin: 0 0 10px 0;">通常AI設定</h3>
+                <div class="benchmark-form">
+                    <label>探索深さ<input id="ai-depth" type="number" min="1" max="8" value="6"></label>
+                    <label>Beam幅<input id="ai-beam" type="number" min="1" max="128" value="12"></label>
+                </div>
+                <p style="font-size: 0.72em; color: #999; line-height: 1.45; margin: 8px 0 0;">深さ・Beam幅を大きくすると探索量が増え、AIの思考時間も長くなります。</p>
+            </div>
 
             <div class="debug-mode-row">
                 <input type="checkbox" id="debug-mode-checkbox" onchange="toggleDebugMode()">
@@ -67,7 +77,6 @@
                 <div id="benchmark-status">準備中…</div>
                 <div id="benchmark-result"><div class="benchmark-empty">まだ測定していません。</div></div>
             </div>
-            <button id="setting-back-btn" onclick="toggleSettingMode()" style="background-color: #457b9d; color: white; margin-top: 20px; width: 100%; padding: 8px; border: none; border-radius: 5px; font-size: 0.9em; font-weight: bold; cursor: pointer;">戻る</button>
         </div>
     </div>
 

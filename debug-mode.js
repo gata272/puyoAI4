@@ -7,8 +7,8 @@
         games: 5,
         turns: 60,
         seed: 20260908,
-        depth: 2,
-        beamWidth: 4
+        depth: 6,
+        beamWidth: 12
     };
 
     const STATE = {

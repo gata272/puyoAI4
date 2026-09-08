@@ -1,6 +1,6 @@
-/* PuyoAI3 browser bridge
+/* PuyoAI5 browser bridge
  * - Keeps the existing simulator/online UI untouched.
- * - Sends the current board and the next three pairs to the WASM AI.
+ * - Sends the current board and the next six pairs to the WASM AI.
  * - The WASM AI uses GTR for the opening plan and then Beam Search +
  *   ama-style linear evaluation.
  */
@@ -11,7 +11,10 @@
         WORKER_PATH: './puyo-ai-worker-wasm.js',
         TICK_MS: 120,
         WIDTH: 6,
-        HEIGHT: 14
+        HEIGHT: 14,
+        DEFAULT_DEPTH: 6,
+        DEFAULT_BEAM_WIDTH: 12,
+        STORAGE_KEY: 'puyoAI.searchSettings'
     };
 
     const STATE = {
@@ -22,6 +25,20 @@
         turn: 0,
         timer: null
     };
+
+
+    function getSearchSettings() {
+        const fallback = { depth: CONFIG.DEFAULT_DEPTH, beamWidth: CONFIG.DEFAULT_BEAM_WIDTH };
+        try {
+            const saved = JSON.parse(localStorage.getItem(CONFIG.STORAGE_KEY) || 'null');
+            return {
+                depth: Number.isFinite(saved?.depth) ? Math.max(1, Math.min(8, Math.trunc(saved.depth))) : fallback.depth,
+                beamWidth: Number.isFinite(saved?.beamWidth) ? Math.max(1, Math.min(128, Math.trunc(saved.beamWidth))) : fallback.beamWidth
+            };
+        } catch (_) {
+            return fallback;
+        }
+    }
 
     function status(text) {
         const el = document.getElementById('ai-status');
@@ -52,7 +69,7 @@
             ? global.queueIndex
             : 0;
 
-        for (let i = 0; i < 2; ++i) {
+        for (let i = 0; i < 5; ++i) {
             const pair = queue[index + i];
             if (!pair || pair.length < 2) break;
             pieces.push({
@@ -86,9 +103,9 @@
     }
 
     function makePieceBuffer(pieces) {
-        const result = new Uint8Array(6);
+        const result = new Uint8Array(12);
 
-        for (let i = 0; i < 3; ++i) {
+        for (let i = 0; i < 6; ++i) {
             if (!pieces[i]) continue;
             result[i * 2] = pieces[i].mainColor & 0xff;
             result[i * 2 + 1] = pieces[i].subColor & 0xff;
@@ -183,9 +200,8 @@
         const pieces = makePieces();
         if (pieces.length === 0) return;
 
-        // The GTR planner requires three pairs. After that, two additional
-        // pieces are sufficient for the search; if the queue is temporarily
-        // short, simply wait for the next tick.
+        // The GTR planner requires three pairs. The post-GTR search can use
+        // up to six total pairs (current + five lookahead).
         if (STATE.turn < 3 && pieces.length < 3) return;
 
         STATE.busy = true;
@@ -195,9 +211,12 @@
                 : 'AI: 盤面評価中...'
         );
 
+        const searchSettings = getSearchSettings();
         STATE.worker.postMessage({
             type: 'think',
             turn: STATE.turn,
+            depth: searchSettings.depth,
+            beamWidth: searchSettings.beamWidth,
             boardBuffer: makeBoardBuffer(),
             pieceBuffer: makePieceBuffer(pieces)
         });
@@ -213,6 +232,33 @@
 
         status('WASM AI 待機中');
     }
+
+    global.loadAISearchSettings = function () {
+        const settings = getSearchSettings();
+        const depth = document.getElementById('ai-depth');
+        const beam = document.getElementById('ai-beam');
+        if (depth) depth.value = settings.depth;
+        if (beam) beam.value = settings.beamWidth;
+    };
+
+    global.saveAISearchSettings = function () {
+        const read = (id, fallback, min, max) => {
+            const value = Number.parseInt(document.getElementById(id)?.value, 10);
+            return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
+        };
+        const settings = {
+            depth: read('ai-depth', CONFIG.DEFAULT_DEPTH, 1, 8),
+            beamWidth: read('ai-beam', CONFIG.DEFAULT_BEAM_WIDTH, 1, 128)
+        };
+        try {
+            localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(settings));
+        } catch (_) {}
+        const depth = document.getElementById('ai-depth');
+        const beam = document.getElementById('ai-beam');
+        if (depth) depth.value = settings.depth;
+        if (beam) beam.value = settings.beamWidth;
+        status(`AI設定: depth ${settings.depth} / beam ${settings.beamWidth}`);
+    };
 
     global.toggleAI = function () {
         STATE.autoEnabled = !STATE.autoEnabled;

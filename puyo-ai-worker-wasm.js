@@ -1,4 +1,4 @@
-/* WASM worker for PuyoAI3 */
+/* WASM worker for PuyoAI5 */
 import createPuyoAI from './puyoAI_wasm.mjs';
 
 let moduleInstance = null;
@@ -22,6 +22,10 @@ async function init() {
             'number',
             [
                 'number',
+                'number', 'number',
+                'number', 'number',
+                'number', 'number',
+                'number', 'number',
                 'number', 'number',
                 'number', 'number',
                 'number', 'number'
@@ -81,7 +85,12 @@ self.onmessage = async (event) => {
             msg.turn | 0,
             pieces[1] | 0, pieces[0] | 0,
             pieces[3] | 0, pieces[2] | 0,
-            pieces[5] | 0, pieces[4] | 0
+            pieces[5] | 0, pieces[4] | 0,
+            pieces[7] | 0, pieces[6] | 0,
+            pieces[9] | 0, pieces[8] | 0,
+            pieces[11] | 0, pieces[10] | 0,
+            msg.depth | 0,
+            msg.beamWidth | 0
         );
 
         if (result < 0) {

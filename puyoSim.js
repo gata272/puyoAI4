@@ -1493,7 +1493,13 @@ window.toggleSettingMode = function() {
         previousGameState = gameState;
         gameState = 'setting';
         overlay.style.display = 'flex';
+        if (typeof window.loadAISearchSettings === 'function') {
+            window.loadAISearchSettings();
+        }
     } else {
+        if (typeof window.saveAISearchSettings === 'function') {
+            window.saveAISearchSettings();
+        }
         gameState = previousGameState;
         overlay.style.display = 'none';
     }
