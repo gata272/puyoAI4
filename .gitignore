@@ -1,0 +1,25 @@
+# Emscripten generated files
+*.wasm
+*.mjs
+
+# Native build
+*.o
+*.obj
+*.a
+*.out
+
+# Build directories
+build/
+bin/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log

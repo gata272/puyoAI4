@@ -1,0 +1,7 @@
+{
+  "depth": 3,
+  "beam_width": 8,
+  "quiescence_drop": 3,
+  "discount": 0.85,
+  "notes": "Production baseline. Benchmark wider beams before increasing width because the scalar C++ evaluator is intentionally portable to Emscripten."
+}

@@ -1,0 +1,21 @@
+{
+  "profile": "ama-build",
+  "source": "citrus610/ama config.json build profile",
+  "weights": {
+    "chain": 1000,
+    "y": 289,
+    "key": -200,
+    "chi": 200,
+    "shape": -100,
+    "well": -100,
+    "bump": -100,
+    "form": 50,
+    "link_2": 150,
+    "link_3": 250,
+    "waste_14": -50,
+    "side": 0,
+    "nuisance": -250,
+    "tear": -250,
+    "waste": -250
+  }
+}

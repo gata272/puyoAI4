@@ -1,0 +1,517 @@
+html, body {
+    height: 100%; 
+    margin: 0;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background-color: #111;
+    color: #fff;
+    padding: 10px;
+}
+
+/* レイアウトの強制横並び */
+#wrapper {
+    display: flex;
+    flex-direction: row; 
+    gap: 8px;
+    background-color: #222;
+    padding: 10px;
+    box-shadow: none;
+    max-width: 800px;
+    margin: 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+    flex-grow: 1; 
+    align-items: flex-start;
+}
+
+#puyo-board {
+    --puyo-cell-size: 36px; 
+    
+    display: grid;
+    grid-template-rows: repeat(14, var(--puyo-cell-size)); 
+    grid-template-columns: repeat(6, var(--puyo-cell-size)) !important; 
+    
+    border: 3px solid #666;
+    background-color: #000;
+    
+    background-image: linear-gradient(to right, #1a1a1a 1px, transparent 1px),
+                      linear-gradient(to bottom, #1a1a1a 1px, transparent 1px);
+    background-size: var(--puyo-cell-size) var(--puyo-cell-size); 
+    background-position: -1px -1px; 
+    
+    /* 幅を自動計算 (36 * 6 = 216px) */
+    width: calc(var(--puyo-cell-size) * 6) !important; 
+    height: calc(var(--puyo-cell-size) * 14) !important; 
+    
+    flex: 0 0 calc(var(--puyo-cell-size) * 6); 
+    min-width: calc(var(--puyo-cell-size) * 6); 
+    margin: 0;
+    
+    max-width: 100%; 
+    max-height: 90vh; 
+    position: relative; 
+}
+
+/* 隠し領域の視覚化 */
+#puyo-board > div:nth-child(-n+12)
+{
+    opacity: 0.5;
+    background-color: rgba(50, 50, 50, 0.5); 
+    border-bottom: 1px solid rgba(255, 0, 0, 0.5); 
+}
+
+/* ゲームオーバーライン */
+#puyo-board > div:nth-child(15) {
+    position: relative;
+    opacity: 1 !important; 
+}
+
+#puyo-board > div:nth-child(15):after {
+    content: 'X'; 
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 2.2em; 
+    color: red;
+    font-weight: bold;
+    opacity: 0.8;
+    pointer-events: none; 
+    z-index: 10;
+}
+
+/* ぷよのデザイン */
+.puyo {
+    border-radius: 50%;
+    box-shadow: inset 0 -3px 0 rgba(0,0,0,0.3), 0 1px 1px rgba(0,0,0,0.2); 
+    display: block; 
+    box-sizing: border-box;
+}
+#puyo-board > div {
+    display: flex; 
+    justify-content: center;
+    align-items: center;
+}
+#puyo-board > div > .puyo {
+    width: 90%; 
+    height: 90%;
+}
+
+/* 情報パネルのレスポンシブ調整 */
+#info-panel {
+    display: flex;
+    flex-direction: column; 
+    gap: 5px;
+    flex: 1;
+    min-width: 0;
+    max-width: 200px;
+    overflow: hidden;
+}
+
+#play-info-container, #edit-info-container {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    width: 100%;
+}
+
+.info-box {
+    padding: 5px 3px;
+    border: 1px solid #444; 
+    background-color: #333; 
+    border-radius: 5px;
+    text-align: center;
+    width: 100%; 
+    box-sizing: border-box;
+}
+
+.info-box h2 {
+    margin: 0 0 3px 0;
+    font-size: 0.85em;
+    color: #ccc;
+}
+
+#score, #chain-count {
+    font-size: 1em;
+    font-weight: bold;
+    color: #e63946;
+}
+
+#play-stats-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+#ojama-box {
+    padding: 5px 3px;
+    border: 1px solid #444;
+    background-color: #333;
+    border-radius: 5px;
+    text-align: center;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+#ojama-count {
+    font-size: 1em;
+    font-weight: bold;
+    color: #ccc;
+}
+
+.small-text {
+  font-size: 8px;
+  color: #666666;
+}
+
+/* NEXTぷよ */
+.next-puyo-row {
+    display: flex; 
+    justify-content: center;
+    gap: 10px;
+}
+#play-next-info .puyo {
+    width: 24px; 
+    height: 24px; 
+}
+
+.next-puyo-slot {
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: center;
+    gap: 2px;
+    min-width: 30px;
+    min-height: 45px;
+    background-color: rgba(0, 0, 0, 0.3);
+    padding: 5px;
+    border-radius: 5px;
+}
+
+.next-puyo-slot .puyo {
+    width: 24px;
+    height: 24px;
+}
+
+/* ボタン類 */
+#history-controls {
+    display: flex;
+    flex-direction: row; 
+    gap: 5px;
+}
+
+#undo-button, #redo-button {
+    flex-grow: 1; 
+    padding: 8px 2px;
+    border: none;
+    border-radius: 5px;
+    font-size: 0.75em;
+    font-weight: bold;
+    color: white;
+    background-color: #f4a261; 
+}
+
+.mode-toggle-btn, #reset-button-edit, #reset-button-play, #auto-drop-toggle-button {
+    width: 100%;
+    padding: 8px;
+    border: none;
+    border-radius: 5px;
+    font-size: 0.85em;
+    font-weight: bold;
+}
+
+.mode-toggle-btn { background-color: #457b9d; color: white; }
+#reset-button-edit, #reset-button-play { background-color: #e63946; color: white; }
+#auto-drop-toggle-button { background-color: #2a9d8f; color: white; }
+
+#raise-puyo-button {
+    width: 100%;
+    padding: 8px;
+    border: none;
+    border-radius: 5px;
+    font-size: 0.85em;
+    font-weight: bold;
+    background-color: #9b59b6;
+    color: white;
+}
+
+#online-toggle-btn {
+    width: 100%;
+    padding: 8px;
+    border: none;
+    border-radius: 5px;
+    font-size: 0.85em;
+    font-weight: bold;
+    background-color: #457b9d;
+    color: white;
+}
+
+#setting-back-btn {
+    background-color: #457b9d;
+    color: white;
+    margin-top: 5px;
+    width: 100%;
+    padding: 8px;
+    border: none;
+    border-radius: 5px;
+    font-size: 0.9em;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+/* モード表示 */
+.edit-info { display: none !important; } 
+.play-info { display: flex; flex-direction: column; } 
+.edit-mode-active .play-info { display: none !important; }
+.edit-mode-active .edit-info { display: flex !important; flex-direction: column; gap: 10px; }
+
+/* パレット */
+.palette-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px; 
+    margin-top: 5px; 
+}
+#color-palette .puyo { width: 100%; aspect-ratio: 1/1; cursor: pointer; }
+#color-palette .puyo.selected { box-shadow: 0 0 0 2px #fff, 0 0 4px 2px #ffc107; }
+
+/* 色定義 */
+.puyo-1 { background-color: #e63946; } 
+.puyo-2 { background-color: #457b9d; } 
+.puyo-3 { background-color: #8ac926; } 
+.puyo-4 { background-color: #fca311; } 
+.puyo-5 { background-color: #ccc; } 
+.puyo-0 { background-color: transparent !important; border: 2px dashed #666; }
+
+.puyo-ghost { opacity: 0.4; border: 2px dashed #fff; }
+
+/* モバイル操作ボタン */
+#mobile-controls {
+    display: none; 
+    margin-top: 15px;
+    width: 100%;
+    max-width: 500px; 
+    flex-direction: row; 
+    justify-content: center; 
+    gap: 6px; 
+    padding: 0 5px;
+    box-sizing: border-box;
+    align-items: stretch;
+}
+
+#mobile-controls.visible {
+    display: flex;
+}
+
+.btn-stack {
+    display: flex;
+    flex-direction: column;
+    flex: 1.5;
+    gap: 4px;
+    min-width: 0;
+}
+
+.mobile-btn {
+    flex: 1; 
+    min-width: 0;
+    height: 120px;
+    font-size: 1.2em; 
+    font-weight: bold;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    background-color: #457b9d; 
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+    transition: background-color 0.1s, transform 0.05s;
+}
+
+.small-btn {
+    flex: none;
+    height: calc(50% - 2px);
+    font-size: 0.9em; 
+    white-space: nowrap;
+}
+
+#btn-soft-drop, #btn-hard-drop { background-color: #5e81ac; }
+#btn-rotate-cw, #btn-rotate-ccw { background-color: #6a0dad; }
+
+.mobile-btn:active {
+    filter: brightness(1.2);
+    transform: scale(0.95);
+}
+
+/* 50手リスト */
+#edit-next-list-container {
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 10px;
+    background: #1a1a1a;
+    padding: 5px;
+    border: 1px solid #444;
+    text-align: left;
+}
+
+/* 50手リスト（N3以降）の1行分のレイアウト */
+.next-puyo-slot-pair {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid #333;
+    background-color: #2a2a2a;
+}
+
+.next-puyo-slot-pair span {
+    font-size: 0.8em;
+    color: #888;
+    width: 30px;
+}
+
+#edit-next-list-container .next-puyo-slot {
+    width: 28px;
+    height: 56px;
+}
+
+#edit-next-list-container .puyo {
+    width: 20px !important;
+    height: 20px !important;
+    cursor: pointer;
+}
+
+.next-puyo-slot-pair .next-puyo-row {
+    margin: 0; 
+    gap: 8px; 
+    justify-content: flex-start; 
+    flex-grow: 1;
+    padding-left: 10px;
+    display: flex;
+    flex-direction: row; 
+    align-items: center;
+}
+
+/* 保守用の互換スタイル */
+.edit-next-item {
+    display: flex;
+    align-items: center;
+    padding: 2px 5px;
+    border-bottom: 1px solid #333;
+    font-size: 12px;
+    color: #ccc;
+}
+
+.edit-next-label {
+    width: 35px;
+    font-weight: bold;
+}
+
+.edit-next-puyos {
+    display: flex;
+    gap: 4px;
+    margin-left: 10px;
+}
+
+.edit-next-puyos .puyo {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+}
+
+/* リスト全体のスクロール設定 */
+#edit-next-list-container {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #444;
+}
+
+/* 設定画面 */
+#setting-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.85);
+    z-index: 1000;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+#setting-overlay .info-box {
+    max-width: 400px;
+    width: 100%;
+    padding: 20px;
+}
+
+/* 追加のおじゃま予告・演出 */
+#ojama-preview {
+    margin-top: 10px;
+    padding: 5px;
+    background: #222;
+    border: 1px solid #555;
+    border-radius: 5px;
+    text-align: center;
+}
+
+#ojama-icons {
+    display: flex;
+    justify-content: center;
+    gap: 3px;
+    flex-wrap: wrap;
+}
+
+.ojama-icon {
+    width: 14px;
+    height: 14px;
+    background: #ccc;
+    border-radius: 50%;
+    border: 1px solid #999;
+}
+
+@keyframes ojamaDrop {
+    0% { transform: translateY(-200px); }
+    100% { transform: translateY(0); }
+}
+
+.ojama-drop {
+    animation: ojamaDrop 0.3s ease-out;
+}
+
+@keyframes warningFlash {
+    0% { background-color: transparent; }
+    50% { background-color: rgba(255,0,0,0.2); }
+    100% { background-color: transparent; }
+}
+
+.warning {
+    animation: warningFlash 0.5s infinite;
+}
+
+body.board-gameover #puyo-board .puyo {
+    position: relative;
+}
+
+body.board-gameover #puyo-board .puyo::after {
+    content: 'X';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: red;
+    font-size: 1.3em;
+    font-weight: bold;
+    opacity: 0.85;
+    pointer-events: none;
+}

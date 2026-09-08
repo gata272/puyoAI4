@@ -1,0 +1,129 @@
+name: Build WASM and Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - name: Check Emscripten
+        run: emcc --version
+
+      - name: Native smoke test
+        run: |
+          g++ \
+            -std=c++20 \
+            -O2 \
+            tests/test_native.cpp \
+            ai/ai.cpp \
+            ai/gtr/gtr_ai.cpp \
+            ai/search/move_generator.cpp \
+            ai/search/beam_search.cpp \
+            ai/simulation/board.cpp \
+            ai/simulation/simulator.cpp \
+            ai/evaluation/features.cpp \
+            ai/evaluation/evaluation.cpp \
+            ai/evaluation/weights.cpp \
+            ai/evaluation/forms.cpp \
+            -I. \
+            -o native_test
+
+          ./native_test
+
+      - name: Build WASM
+        run: |
+          em++ \
+            wasm/puyoAI.cpp \
+            ai/ai.cpp \
+            ai/gtr/gtr_ai.cpp \
+            ai/search/move_generator.cpp \
+            ai/search/beam_search.cpp \
+            ai/simulation/board.cpp \
+            ai/simulation/simulator.cpp \
+            ai/evaluation/features.cpp \
+            ai/evaluation/evaluation.cpp \
+            ai/evaluation/weights.cpp \
+            ai/evaluation/forms.cpp \
+            -std=c++20 \
+            -O3 \
+            -flto \
+            -I. \
+            -sMODULARIZE=1 \
+            -sEXPORT_ES6=1 \
+            -sENVIRONMENT=worker \
+            -sALLOW_MEMORY_GROWTH=1 \
+            -sEXPORTED_FUNCTIONS='["_malloc","_free","_reset_ai","_set_board_cell","_ai_choose_move","_get_ai_pattern_name"]' \
+            -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
+            -o puyoAI_wasm.mjs
+
+      - name: Verify WASM output
+        run: |
+          test -f puyoAI_wasm.mjs
+          test -f puyoAI_wasm.wasm
+          ls -lh puyoAI_wasm.mjs puyoAI_wasm.wasm
+
+      - name: Prepare Pages artifact
+        run: |
+          mkdir -p _site
+
+          # Copy only the files/directories needed by the web application.
+          rsync -av \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='tests/' \
+            --exclude='tools/' \
+            --exclude='build/' \
+            --exclude='_site/' \
+            --exclude='native_test' \
+            ./ _site/
+
+          # Put the newly built WASM files in the site root
+          cp puyoAI_wasm.mjs _site/puyoAI_wasm.mjs
+          cp puyoAI_wasm.wasm _site/puyoAI_wasm.wasm
+
+          echo "=== Pages artifact ==="
+          find _site -maxdepth 3 -type f | sort
+
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+
+    needs: build
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,20 @@
+{
+  "profile": "spsa",
+  "weights": {
+    "chain": 1059 ,
+    "y": 348 ,
+    "key": 111 ,
+    "chi": 0 ,
+    "shape": -210 ,
+    "well": -41 ,
+    "bump": 262 ,
+    "form": 361 ,
+    "link_2": 209 ,
+    "link_3": 360 ,
+    "waste_14": 200 ,
+    "side": -110 ,
+    "nuisance": -191 ,
+    "tear": -561 ,
+    "waste": 0
+  }
+}
