@@ -45,23 +45,31 @@ int ai_choose_move(
     int turn,
     int sub1, int main1,
     int sub2, int main2,
-    int sub3, int main3
+    int sub3, int main3,
+    int sub4, int main4,
+    int sub5, int main5,
+    int sub6, int main6,
+    int depth, int beamWidth
 ) {
     std::vector<puyo::PuyoPair> pieces = {
         {main1, sub1},
         {main2, sub2},
-        {main3, sub3}
+        {main3, sub3},
+        {main4, sub4},
+        {main5, sub5},
+        {main6, sub6}
     };
 
     puyo::Move move = g_ai.chooseMove(
         turn,
         g_board,
-        pieces
+        pieces,
+        depth,
+        beamWidth
     );
 
     if (!move.valid) return -1;
 
-    // x * 10 + rotation; compatible with the old JS bridge.
     return move.x * 10 + move.rotation;
 }
 
