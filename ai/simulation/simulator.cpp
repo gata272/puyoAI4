@@ -18,7 +18,7 @@ bool sameColor(Cell c) {
     return c != Cell::Empty && c != Cell::Garbage;
 }
 
-std::vector<Coord> coordsFor(const PuyoPair& p, int x, int y, int rotation) {
+std::vector<Coord> coordsFor(const PuyoPair&, int x, int y, int rotation) {
     int sx = x;
     int sy = y;
 
