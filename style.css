@@ -515,3 +515,60 @@ body.board-gameover #puyo-board .puyo::after {
     opacity: 0.85;
     pointer-events: none;
 }
+/* --- Debug / benchmark UI --- */
+#debug-panel[hidden] { display: none !important; }
+#debug-panel {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255,255,255,0.14);
+    text-align: left;
+}
+.debug-mode-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+}
+.debug-mode-row label { cursor: pointer; }
+.debug-mode-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 0.7em;
+    background: #9b59b6;
+    color: #fff;
+}
+.benchmark-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 10px;
+    margin: 10px 0;
+}
+.benchmark-form label { font-size: 0.78em; color: #bbb; }
+.benchmark-form input {
+    width: 100%; box-sizing: border-box;
+    margin-top: 3px; padding: 7px 8px;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 5px;
+    background: rgba(255,255,255,0.06); color: #fff;
+}
+#run-benchmark-button {
+    width: 100%; padding: 9px; border: 0; border-radius: 5px;
+    background: #8e44ad; color: #fff; font-weight: bold; cursor: pointer;
+}
+#run-benchmark-button:disabled { opacity: 0.55; cursor: wait; }
+#benchmark-status { min-height: 1.2em; margin: 7px 0; color: #aaa; font-size: 0.75em; }
+.benchmark-summary-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; margin: 8px 0 10px; }
+.benchmark-summary-grid > div { padding: 8px; border-radius: 5px; background: rgba(255,255,255,0.05); }
+.benchmark-summary-grid span { display: block; font-size: 0.68em; color: #aaa; }
+.benchmark-summary-grid strong { display: block; margin-top: 3px; font-size: 1.15em; color: #fff; }
+.benchmark-table { width: 100%; border-collapse: collapse; font-size: 0.73em; }
+.benchmark-table th, .benchmark-table td { padding: 5px 3px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.benchmark-table th { text-align: left; color: #aaa; font-weight: normal; }
+.benchmark-table td { text-align: right; color: #fff; }
+.benchmark-note { color: #888; font-size: 0.68em; line-height: 1.45; }
+.benchmark-empty { color: #777; font-size: 0.78em; padding: 10px 0; }
+@media (max-width: 650px) {
+    .benchmark-form { grid-template-columns: 1fr; }
+}

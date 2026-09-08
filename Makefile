@@ -14,28 +14,21 @@ AI_SOURCES := \
 	ai/gtr/gtr_ai.cpp \
 	ai/ai.cpp
 
-.PHONY: test benchmark tuner clean
+BENCHMARK_SOURCES := $(AI_SOURCES) ai/benchmark/chain_benchmark.cpp
+
+.PHONY: test benchmark clean
 
 test:
 	$(CXX) $(CXXFLAGS) $(INCLUDES) \
 		tests/test_native.cpp $(AI_SOURCES) \
-		-o /tmp/puyoai3_test
-	/tmp/puyoai3_test
+		-o /tmp/puyoai_test
+	/tmp/puyoai_test
 
 benchmark:
 	$(CXX) $(CXXFLAGS) $(INCLUDES) \
-		tools/benchmark.cpp $(AI_SOURCES) -o /tmp/puyoai3_benchmark
-	/tmp/puyoai3_benchmark 4 40
-
-TUNER_ITER ?= 20
-TUNER_GAMES ?= 6
-TUNER_TURNS ?= 35
-
-tuner:
-	$(CXX) $(CXXFLAGS) $(INCLUDES) \
-		tools/tuner.cpp $(AI_SOURCES) -o /tmp/puyoai3_tuner
-	/tmp/puyoai3_tuner $(TUNER_ITER) $(TUNER_GAMES) $(TUNER_TURNS)
+		tools/chain_benchmark_cli.cpp $(BENCHMARK_SOURCES) \
+		-o /tmp/puyoai_benchmark
+	/tmp/puyoai_benchmark 4 60 20260908 2 4
 
 clean:
-	rm -f /tmp/puyoai3_test
-	rm -f ai/**/*.o
+	rm -f /tmp/puyoai_test /tmp/puyoai_benchmark

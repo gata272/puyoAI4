@@ -1,58 +1,84 @@
-# PuyoAI3
+# PuyoAI
 
-ぷよぷよシミュレータに統合するための新しいAI実装です。
+ぷよぷよシミュレータに統合した研究用AIです。既存のオンライン対戦機能を維持しながら、GTR構築後をBeam Search + ama-style評価で探索します。
 
-## 現在のAI
+## AI
 
-### 1. GTR構築
+- 序盤3手: 既存GTR構築ロジック
+- GTR後: Beam Search
+- 評価: amaの公開評価をベースにした線形評価 + quiescence search
+- 研究用に探索深度・Beam幅を変更可能
 
-既存 `puyoAI2` のGTR構築ロジックを分離して保持しています。
+AIコアは `ai/` 以下に分離し、Webゲーム本体の `puyoSim.js` とは独立したC++ Simulatorを使用します。
 
-- 3手分のツモから色を抽象化
-- GTR用パターンを判定
-- パターンに対応する3手の固定プランを生成
+## 最大連鎖ベンチマーク
 
-### 2. GTR後
+AI改善の主目的を「最大連鎖数の向上」として、決定論的な単独対局ベンチマークを実装しています。
 
-GTR構築後は固定手順ではなく、
+### ブラウザ
 
-- 3手先のBeam Search
-- amaの公開 `build` プロファイルの線形評価重み
-- ama-style quiescence search（最大3個の単体ぷよ追加によるトリガー探索）
-- 盤面シミュレーション
+1. GitHub Pagesを開く
+2. 「設定」を開く
+3. 「デバッグモード」をON
+4. 試行ゲーム数、ターン数、Seed、探索深度、Beam幅を設定
+5. 「最大連鎖ベンチマーク開始」を押す
+6. 結果が画面内に表示されます
 
-を使用します。
+ベンチマークは `benchmark-worker.js` で通常AIとは別のWeb Workerとして実行します。そのため、測定中もメインのUIスレッドを直接ブロックしません。
 
-評価特徴量は `shape / well / bump / form / link_2 / link_3 / waste_14 / side / nuisance` と、
-先読みで評価する `chain / y / key / chi`、操作由来の `tear / waste` です。
+同じ `Seed / ゲーム数 / ターン数` であれば、depthやBeam幅を変えても同じツモ列が使用されます。これによりAI設定間の比較を再現可能にしています。
 
-> 注意: ビットフィールド/SIMD、厳密な操作フレーム数、探索用の転置表などは独立実装です。一方、公開されているGTR/SGTR/FRON人間形、評価式、link_2/link_3の定義、quiet searchの考え方はできるだけ直接対応させています。
+主指標:
 
-## Web / オンライン機能
+- 平均最大連鎖数
+- 中央値
+- 90%点
+- 全ゲーム中の最大連鎖
+- 5/8/10/12連鎖以上の到達率
 
-既存の `puyoSim.js`、`online.js`、`online.css` を残しているため、PeerJSを利用したオンライン対戦機能は維持します。
+補助指標:
 
-ブラウザ上では、
+- 平均スコア
+- 平均生存ターン
+- 平均思考時間
+- ゲームオーバー数
 
-`puyoSim.js → puyoAI.js → Worker → WASM → AI`
+詳細は `docs/CHAIN_BENCHMARK.md` を参照してください。
 
-という経路でAIを実行します。
-
-## ビルド
-
-GitHub ActionsでEmscriptenを取得し、WASMを生成してGitHub Pagesへデプロイします。
-
-ローカルでAIコアだけ確認する場合:
+## CLI
 
 ```bash
 make test
+make benchmark
 ```
+
+直接ベンチマークを実行する場合:
+
+```bash
+./puyoai_benchmark <games> <turns> <seed> <depth> <beamWidth>
+```
+
+例:
+
+```bash
+./puyoai_benchmark 100 60 20260908 3 8
+```
+
+## GitHub Pages
+
+`.github/workflows/build-wasm.yml` がEmscriptenでWASMをビルドし、GitHub Pages用artifactを生成します。WASM生成物はリポジトリにコミットせず、Actionsで毎回生成します。
+
+## オンライン対戦
+
+既存の `puyoSim.js`、`online.js`、`online.css` とPeerJSによるオンライン機能を維持しています。AI・デバッグ機能はオンライン機能のコードとは分離されています。
 
 ## ディレクトリ
 
 ```text
 ai/
-  ai.cpp
+  ai.cpp / ai.h
+  benchmark/
+    chain_benchmark.cpp / chain_benchmark.h
   gtr/
   evaluation/
   search/
@@ -61,22 +87,27 @@ ai/
 wasm/
   puyoAI.cpp
 
+benchmark-worker.js
+debug-mode.js
+puyoAI.js
+puyo-ai-worker-wasm.js
 puyoSim.js
 online.js
 online.css
-puyoAI.js
-puyo-ai-worker-wasm.js
 
 config/
   weights.json
   search.json
 
 tools/
-  benchmark.cpp
+  chain_benchmark_cli.cpp
   tuner.cpp
 
 docs/
   ARCHITECTURE.md
   AMA_EVALUATION.md
+  CHAIN_BENCHMARK.md
+  DEBUG_MODE.md
   MIGRATION.md
+  RESEARCH_NEXT.md
 ```

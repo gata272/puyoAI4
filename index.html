@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Puyo Puyo Simulator (PuyoAI3)</title>
+    <title>Puyo Puyo Simulator (PuyoAI)</title>
 
     <meta name="apple-mobile-web-app-title" content="PuyoSim">
     <meta name="application-name" content="PuyoSim">
@@ -43,6 +43,30 @@
             </div>
 
             <p style="font-size: 0.8em; color: #888; margin-top: 10px;">※値が小さいほどアニメーションが速くなります。</p>
+
+            <div class="debug-mode-row">
+                <input type="checkbox" id="debug-mode-checkbox" onchange="toggleDebugMode()">
+                <label for="debug-mode-checkbox">デバッグモード</label>
+                <span id="debug-mode-badge" class="debug-mode-badge" hidden>DEBUG</span>
+            </div>
+
+            <div id="debug-panel" hidden>
+                <h3 style="font-size: 1em; margin: 8px 0;">最大連鎖ベンチマーク</h3>
+                <p style="font-size: 0.72em; color: #999; line-height: 1.45;">
+                    同じSeedから同じツモ列を生成し、AIの最大連鎖数を比較します。
+                    ベンチマークは通常プレイとは独立したWASMワーカーで実行されます。
+                </p>
+                <div class="benchmark-form">
+                    <label>試行ゲーム数<input id="benchmark-games" type="number" min="1" max="5000" value="5"></label>
+                    <label>1ゲームの最大ターン<input id="benchmark-turns" type="number" min="1" max="500" value="60"></label>
+                    <label>Seed<input id="benchmark-seed" type="number" value="20260908"></label>
+                    <label>探索深さ<input id="benchmark-depth" type="number" min="1" max="8" value="2"></label>
+                    <label>Beam幅<input id="benchmark-beam" type="number" min="1" max="128" value="4"></label>
+                </div>
+                <button id="run-benchmark-button" onclick="runChainBenchmark()" disabled>最大連鎖ベンチマーク開始</button>
+                <div id="benchmark-status">準備中…</div>
+                <div id="benchmark-result"><div class="benchmark-empty">まだ測定していません。</div></div>
+            </div>
             <button id="setting-back-btn" onclick="toggleSettingMode()" style="background-color: #457b9d; color: white; margin-top: 20px; width: 100%; padding: 8px; border: none; border-radius: 5px; font-size: 0.9em; font-weight: bold; cursor: pointer;">戻る</button>
         </div>
     </div>
@@ -161,10 +185,11 @@
         <button class="mobile-btn" id="btn-rotate-ccw">A</button>
     </div>
 
-    <p class="small-text">PuyoSim + PuyoAI3 (GTR + Beam Search)</p>
+    <p class="small-text">PuyoSim + PuyoAI (GTR + Beam Search)</p>
 
     <script src="./puyoSim.js"></script>
     <script src="./puyoAI.js"></script>
+    <script src="./debug-mode.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script src="./online.js"></script>
 
