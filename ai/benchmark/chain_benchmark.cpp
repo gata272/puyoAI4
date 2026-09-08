@@ -57,8 +57,8 @@ std::vector<PuyoPair> makeQueue(int seed, int game, int turns) {
     std::uniform_int_distribution<int> color(1, kColors);
 
     std::vector<PuyoPair> queue;
-    queue.reserve(static_cast<std::size_t>(turns + 2));
-    for (int i = 0; i < turns + 2; ++i) {
+    queue.reserve(static_cast<std::size_t>(turns + 6));
+    for (int i = 0; i < turns + 6; ++i) {
         queue.push_back({color(rng), color(rng)});
     }
     return queue;
@@ -118,8 +118,8 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
         for (int turn = 0; turn < config.turns; ++turn) {
             // AI needs the current pair plus two lookahead pairs.
             std::vector<PuyoPair> pieces;
-            pieces.reserve(3);
-            for (int i = 0; i < 3 && turn + i < static_cast<int>(queue.size()); ++i) {
+            pieces.reserve(6);
+            for (int i = 0; i < 6 && turn + i < static_cast<int>(queue.size()); ++i) {
                 pieces.push_back(queue[turn + i]);
             }
             if (pieces.empty()) break;
