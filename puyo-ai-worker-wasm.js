@@ -28,6 +28,10 @@ async function init() {
                 'number', 'number',
                 'number', 'number',
                 'number', 'number',
+                'number', 'number',
+                'number', 'number',
+                'number', 'number',
+                'number', 'number',
                 'number', 'number'
             ]
         );
@@ -89,6 +93,10 @@ self.onmessage = async (event) => {
             pieces[7] | 0, pieces[6] | 0,
             pieces[9] | 0, pieces[8] | 0,
             pieces[11] | 0, pieces[10] | 0,
+            pieces[13] | 0, pieces[12] | 0,
+            pieces[15] | 0, pieces[14] | 0,
+            pieces[17] | 0, pieces[16] | 0,
+            pieces[19] | 0, pieces[18] | 0,
             msg.depth | 0,
             msg.beamWidth | 0
         );

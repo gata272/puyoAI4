@@ -7,7 +7,7 @@
         games: 5,
         turns: 60,
         seed: 20260908,
-        depth: 6,
+        depth: 10,
         beamWidth: 12
     };
 
@@ -59,7 +59,7 @@
             games: read('benchmark-games', DEFAULTS.games, 1, 5000),
             turns: read('benchmark-turns', DEFAULTS.turns, 1, 500),
             seed: read('benchmark-seed', DEFAULTS.seed, -2147483648, 2147483647),
-            depth: read('benchmark-depth', DEFAULTS.depth, 1, 8),
+            depth: read('benchmark-depth', DEFAULTS.depth, 1, 10),
             beamWidth: read('benchmark-beam', DEFAULTS.beamWidth, 1, 128)
         };
     }

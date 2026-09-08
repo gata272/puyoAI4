@@ -12,7 +12,7 @@
         TICK_MS: 120,
         WIDTH: 6,
         HEIGHT: 14,
-        DEFAULT_DEPTH: 6,
+        DEFAULT_DEPTH: 10,
         DEFAULT_BEAM_WIDTH: 12,
         STORAGE_KEY: 'puyoAI.searchSettings'
     };
@@ -32,7 +32,7 @@
         try {
             const saved = JSON.parse(localStorage.getItem(CONFIG.STORAGE_KEY) || 'null');
             return {
-                depth: Number.isFinite(saved?.depth) ? Math.max(1, Math.min(8, Math.trunc(saved.depth))) : fallback.depth,
+                depth: Number.isFinite(saved?.depth) ? Math.max(1, Math.min(10, Math.trunc(saved.depth))) : fallback.depth,
                 beamWidth: Number.isFinite(saved?.beamWidth) ? Math.max(1, Math.min(128, Math.trunc(saved.beamWidth))) : fallback.beamWidth
             };
         } catch (_) {
@@ -69,7 +69,7 @@
             ? global.queueIndex
             : 0;
 
-        for (let i = 0; i < 5; ++i) {
+        for (let i = 0; i < 9; ++i) {
             const pair = queue[index + i];
             if (!pair || pair.length < 2) break;
             pieces.push({
@@ -103,9 +103,9 @@
     }
 
     function makePieceBuffer(pieces) {
-        const result = new Uint8Array(12);
+        const result = new Uint8Array(20);
 
-        for (let i = 0; i < 6; ++i) {
+        for (let i = 0; i < 10; ++i) {
             if (!pieces[i]) continue;
             result[i * 2] = pieces[i].mainColor & 0xff;
             result[i * 2 + 1] = pieces[i].subColor & 0xff;

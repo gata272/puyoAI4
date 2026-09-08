@@ -8,6 +8,7 @@ AI_SOURCES := \
 	ai/evaluation/features.cpp \
 	ai/evaluation/weights.cpp \
 	ai/evaluation/evaluation.cpp \
+	ai/evaluation/trigger_route.cpp \
 	ai/evaluation/forms.cpp \
 	ai/search/move_generator.cpp \
 	ai/search/beam_search.cpp \
