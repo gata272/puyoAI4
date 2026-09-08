@@ -24,7 +24,7 @@ constexpr int kMaxGames = 5000;
 constexpr int kMinTurns = 1;
 constexpr int kMaxTurns = 500;
 constexpr int kMinDepth = 1;
-constexpr int kMaxDepth = 8;
+constexpr int kMaxDepth = 10;
 constexpr int kMinBeam = 1;
 constexpr int kMaxBeam = 128;
 
@@ -57,8 +57,8 @@ std::vector<PuyoPair> makeQueue(int seed, int game, int turns) {
     std::uniform_int_distribution<int> color(1, kColors);
 
     std::vector<PuyoPair> queue;
-    queue.reserve(static_cast<std::size_t>(turns + 6));
-    for (int i = 0; i < turns + 6; ++i) {
+    queue.reserve(static_cast<std::size_t>(turns + 10));
+    for (int i = 0; i < turns + 10; ++i) {
         queue.push_back({color(rng), color(rng)});
     }
     return queue;
@@ -118,8 +118,8 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
         for (int turn = 0; turn < config.turns; ++turn) {
             // AI needs the current pair plus two lookahead pairs.
             std::vector<PuyoPair> pieces;
-            pieces.reserve(6);
-            for (int i = 0; i < 6 && turn + i < static_cast<int>(queue.size()); ++i) {
+            pieces.reserve(10);
+            for (int i = 0; i < 10 && turn + i < static_cast<int>(queue.size()); ++i) {
                 pieces.push_back(queue[turn + i]);
             }
             if (pieces.empty()) break;
