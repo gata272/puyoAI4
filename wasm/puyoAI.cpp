@@ -1,9 +1,13 @@
 #include <emscripten/emscripten.h>
 
 #include "../ai/ai.h"
+#include "../ai/benchmark/chain_benchmark.h"
 
 #include <array>
 #include <vector>
+#include <string>
+
+static std::string g_benchmarkResult;
 
 namespace {
 
@@ -59,6 +63,24 @@ int ai_choose_move(
 
     // x * 10 + rotation; compatible with the old JS bridge.
     return move.x * 10 + move.rotation;
+}
+
+EMSCRIPTEN_KEEPALIVE
+const char* run_chain_benchmark(
+    int games,
+    int turns,
+    int seed,
+    int depth,
+    int beamWidth
+) {
+    puyo::ChainBenchmarkConfig config;
+    config.games = games;
+    config.turns = turns;
+    config.seed = seed;
+    config.depth = depth;
+    config.beamWidth = beamWidth;
+    g_benchmarkResult = puyo::runChainBenchmark(config);
+    return g_benchmarkResult.c_str();
 }
 
 EMSCRIPTEN_KEEPALIVE
