@@ -46,6 +46,7 @@ jobs:
             ai/evaluation/features.cpp \
             ai/evaluation/evaluation.cpp \
             ai/evaluation/weights.cpp \
+            ai/evaluation/trigger_route.cpp \
             ai/evaluation/forms.cpp \
             -I. \
             -o native_test
@@ -66,6 +67,7 @@ jobs:
             ai/evaluation/features.cpp \
             ai/evaluation/evaluation.cpp \
             ai/evaluation/weights.cpp \
+            ai/evaluation/trigger_route.cpp \
             ai/evaluation/forms.cpp \
             -std=c++20 \
             -O3 \
@@ -89,7 +91,6 @@ jobs:
         run: |
           mkdir -p _site
 
-          # Copy only the files/directories needed by the web application.
           rsync -av \
             --exclude='.git/' \
             --exclude='.github/' \
@@ -100,7 +101,6 @@ jobs:
             --exclude='native_test' \
             ./ _site/
 
-          # Put the newly built WASM files in the site root
           cp puyoAI_wasm.mjs _site/puyoAI_wasm.mjs
           cp puyoAI_wasm.wasm _site/puyoAI_wasm.wasm
 
