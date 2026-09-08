@@ -20,3 +20,13 @@
   weights.
 - Compare tuned profiles against the public ama `build` profile using the same
   queue corpus.
+
+
+## Maximum-chain focused revision
+
+- Post-GTR search can consume six pairs (current + five lookahead).
+- Root selection is maximum-chain-first, then normal evaluation as the tie-breaker.
+- Immediate chains receive a nonlinear `chains^4` reward.
+- A `chainPotential` feature rewards extendable 2/3-puyo groups.
+- If safe placements exist, game-over placements are excluded. If none exist,
+  the least-bad game-over placement is returned instead of reporting no move.

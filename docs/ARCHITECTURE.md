@@ -29,3 +29,16 @@ The initial upgraded search uses:
 - a linear weighted evaluation function
 
 The parameters are intentionally centralized so that beam width, search depth and quiescence depth can be tuned independently later.
+
+
+## Maximum-chain search
+
+After the opening GTR phase, the AI uses a true global beam search over up to
+six pairs. Immediate chain counts receive a nonlinear reward, while a chain-
+potential feature values extendable 2/3-puyo groups. The final root choice is
+lexicographic: maximize the largest chain observed within the search horizon,
+then maximize the accumulated heuristic score.
+
+Game-over placements are treated as a fallback class. They are excluded when
+at least one safe placement exists; if every legal placement causes game over,
+the best game-over placement is returned.

@@ -47,3 +47,15 @@ make benchmark
 ## 注意
 
 このベンチマークは、現状では「ランダムなツモ列に対する単独プレイ」を測定します。オンライン対戦の勝率やおじゃま相互作用は評価対象ではありません。また、ブラウザ版のJSゲームエンジンとC++研究用Simulatorには既知の実装差があるため、研究用の相対比較を主目的とします。
+
+
+## Maximum-chain-focused search
+
+The current production baseline is depth 6 / beam width 12 with six total
+pairs available to the search. Benchmark settings can override this. Results
+should be compared using identical `seed`, game count, turn count, depth and
+beam width except for the single variable being tested.
+
+The primary research metric is maximum chain per game. Average maximum chain,
+median, p90, threshold rates (5/8/10/12), survival, score and thinking time
+are secondary metrics.
