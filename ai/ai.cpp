@@ -1,5 +1,7 @@
 #include "ai.h"
 
+#include <algorithm>
+
 namespace puyo {
 
 AI::AI()
@@ -16,10 +18,20 @@ Move AI::chooseMove(
     const Board& board,
     const std::vector<PuyoPair>& pieces
 ) {
+    return chooseMove(turn, board, pieces, 3, 8);
+}
+
+Move AI::chooseMove(
+    int turn,
+    const Board& board,
+    const std::vector<PuyoPair>& pieces,
+    int depth,
+    int beamWidth
+) {
     if (pieces.empty()) return {-1, 0, false};
 
-    // Preserve the current AI's first three GTR moves. Once the
-    // GTR plan is exhausted, switch to the general search/evaluation engine.
+    // Preserve the current AI's first three GTR moves. Once the GTR plan is
+    // unavailable or exhausted, switch to the general search/evaluation engine.
     if (turn >= 0 && turn < 3 && pieces.size() >= 3) {
         Move gtrMove = gtr_.chooseMove(
             turn,
@@ -41,8 +53,8 @@ Move AI::chooseMove(
         board,
         pieces,
         weights_,
-        3,
-        8
+        std::max(1, depth),
+        std::max(1, beamWidth)
     );
 }
 

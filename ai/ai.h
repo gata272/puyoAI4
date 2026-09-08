@@ -22,6 +22,16 @@ public:
         const std::vector<PuyoPair>& pieces
     );
 
+    // Configurable entry point used by benchmarks and research tooling.
+    // Production gameplay continues to use chooseMove() above.
+    Move chooseMove(
+        int turn,
+        const Board& board,
+        const std::vector<PuyoPair>& pieces,
+        int depth,
+        int beamWidth
+    );
+
     const char* patternName() const;
 
 private:
