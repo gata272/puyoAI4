@@ -13,7 +13,7 @@ Weights amaBuildWeights() {
         -100, // well
         -100, // bump
         50,   // form
-        450,  // chainPotential (max-chain oriented extension potential)
+        1000,  // chainPotential (max-chain oriented extension potential)
         150,  // link2
         250,  // link3
         -50,  // waste14
