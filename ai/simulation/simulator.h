@@ -37,6 +37,10 @@ public:
         int rotation
     );
 
+    // Resolve an already-populated board using the exact same gravity and
+    // chain rules as drop(). Used by trigger planning to test latent triggers.
+    static int resolveBoard(Board& board, int& score, int& erased);
+
 private:
     static void gravity(Board& board);
     static int resolve(Board& board, int& score, int& erased);

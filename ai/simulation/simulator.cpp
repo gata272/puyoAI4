@@ -214,6 +214,10 @@ int Simulator::resolve(Board& board, int& score, int& erased) {
     return chains;
 }
 
+int Simulator::resolveBoard(Board& board, int& score, int& erased) {
+    return resolve(board, score, erased);
+}
+
 SimulationResult Simulator::drop(
     const Board& board,
     const PuyoPair& pair,
