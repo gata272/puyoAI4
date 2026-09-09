@@ -1,10 +1,10 @@
 {
-  "depth": 10,
-  "beamWidth": 12,
-  "lookaheadPairs": 10,
+  "depth": 3,
+  "beamWidth": 24,
+  "lookaheadPairs": 3,
   "quiescenceDrop": 3,
   "discount": 0.85,
-  "objective": "maximum-chain-first with trigger-transfer construction",
+  "objective": "3-pair human-information constraint with persistent trigger-transfer construction",
   "chainReward": "1-3 chains penalized; 4 small reward; 5+ 20000 * chains^4",
-  "notes": "AI prioritizes ordered A->B trigger-transfer routes: a 3-puyo A trigger can fire, while the B puyo falls/connects to a 3-puyo B group and becomes the next trigger. Existing benchmark and configurable depth/beam controls are unchanged."
+  "notes": "AI marks a strong exact-3 trigger, then prioritizes preserving it and transferring the trigger to a new color within the visible three-pair horizon. Vertical and horizontal trigger dependencies are recognized; missing desired colors can be deferred rather than destroying the anchor."
 }
