@@ -1,6 +1,7 @@
 
 #include "../ai/simulation/simulator.h"
 #include "../ai/ai.h"
+#include "../ai/evaluation/trigger_route.h"
 #include <cassert>
 #include <iostream>
 
@@ -36,6 +37,31 @@ int main() {
     auto fallbackSim = puyo::Simulator::drop(doomed, pieces[0], fallback);
     assert(fallbackSim.gameOver);
     assert(!fallbackSim.allClear);
+
+
+    // Trigger-transfer regression: C -> B -> A is recognized as a three-level
+    // dependency.  Clearing C makes B a four-group; clearing B then makes A
+    // a four-group.
+    puyo::Board relay;
+    relay.set(1,0,puyo::Cell::Red); relay.set(2,0,puyo::Cell::Red); relay.set(3,0,puyo::Cell::Red);
+    relay.set(1,1,puyo::Cell::Blue); relay.set(2,1,puyo::Cell::Blue); relay.set(1,2,puyo::Cell::Blue);
+    relay.set(2,2,puyo::Cell::Red);
+    relay.set(0,3,puyo::Cell::Green); relay.set(1,3,puyo::Cell::Green); relay.set(0,4,puyo::Cell::Green);
+    relay.set(1,4,puyo::Cell::Blue);
+    assert(puyo::triggerRouteLength(relay) >= 3);
+
+    // Horizontal transfer regression: clearing a vertical B trigger lets an
+    // upper A fall beside an existing horizontal AAA, proving the dependency
+    // detector is not restricted to the vertical motif.
+    puyo::Board horizontal;
+    horizontal.set(1,0,puyo::Cell::Red);
+    horizontal.set(2,0,puyo::Cell::Red);
+    horizontal.set(3,0,puyo::Cell::Red);
+    horizontal.set(0,0,puyo::Cell::Blue);
+    horizontal.set(0,1,puyo::Cell::Blue);
+    horizontal.set(0,2,puyo::Cell::Blue);
+    horizontal.set(0,3,puyo::Cell::Red);
+    assert(puyo::triggerRouteLength(horizontal) >= 2);
 
     std::cout << "native AI smoke test passed: "
               << next.x << "," << next.rotation << "\n";
