@@ -118,8 +118,8 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
         for (int turn = 0; turn < config.turns; ++turn) {
             // AI needs the current pair plus two lookahead pairs.
             std::vector<PuyoPair> pieces;
-            pieces.reserve(10);
-            for (int i = 0; i < 10 && turn + i < static_cast<int>(queue.size()); ++i) {
+            pieces.reserve(3);
+            for (int i = 0; i < 3 && turn + i < static_cast<int>(queue.size()); ++i) {
                 pieces.push_back(queue[turn + i]);
             }
             if (pieces.empty()) break;
