@@ -1,6 +1,6 @@
-/* PuyoAI5 browser bridge
+/* PuyoAI10 trigger-transfer browser bridge
  * - Keeps the existing simulator/online UI untouched.
- * - Sends the current board and the next six pairs to the WASM AI.
+ * - Sends the current board and the next three pairs to the WASM AI.
  * - The WASM AI uses GTR for the opening plan and then Beam Search +
  *   ama-style linear evaluation.
  */
@@ -12,8 +12,8 @@
         TICK_MS: 120,
         WIDTH: 6,
         HEIGHT: 14,
-        DEFAULT_DEPTH: 10,
-        DEFAULT_BEAM_WIDTH: 12,
+        DEFAULT_DEPTH: 3,
+        DEFAULT_BEAM_WIDTH: 24,
         STORAGE_KEY: 'puyoAI.searchSettings'
     };
 
@@ -32,7 +32,7 @@
         try {
             const saved = JSON.parse(localStorage.getItem(CONFIG.STORAGE_KEY) || 'null');
             return {
-                depth: Number.isFinite(saved?.depth) ? Math.max(1, Math.min(10, Math.trunc(saved.depth))) : fallback.depth,
+                depth: Number.isFinite(saved?.depth) ? Math.max(1, Math.min(3, Math.trunc(saved.depth))) : fallback.depth,
                 beamWidth: Number.isFinite(saved?.beamWidth) ? Math.max(1, Math.min(128, Math.trunc(saved.beamWidth))) : fallback.beamWidth
             };
         } catch (_) {
@@ -69,7 +69,7 @@
             ? global.queueIndex
             : 0;
 
-        for (let i = 0; i < 9; ++i) {
+        for (let i = 0; i < 2; ++i) {
             const pair = queue[index + i];
             if (!pair || pair.length < 2) break;
             pieces.push({
@@ -103,9 +103,9 @@
     }
 
     function makePieceBuffer(pieces) {
-        const result = new Uint8Array(20);
+        const result = new Uint8Array(6);
 
-        for (let i = 0; i < 10; ++i) {
+        for (let i = 0; i < 3; ++i) {
             if (!pieces[i]) continue;
             result[i * 2] = pieces[i].mainColor & 0xff;
             result[i * 2 + 1] = pieces[i].subColor & 0xff;
@@ -201,7 +201,7 @@
         if (pieces.length === 0) return;
 
         // The GTR planner requires three pairs. The post-GTR search can use
-        // up to six total pairs (current + five lookahead).
+        // up to three total pairs (current + two lookahead).
         if (STATE.turn < 3 && pieces.length < 3) return;
 
         STATE.busy = true;
@@ -247,7 +247,7 @@
             return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
         };
         const settings = {
-            depth: read('ai-depth', CONFIG.DEFAULT_DEPTH, 1, 8),
+            depth: read('ai-depth', CONFIG.DEFAULT_DEPTH, 1, 3),
             beamWidth: read('ai-beam', CONFIG.DEFAULT_BEAM_WIDTH, 1, 128)
         };
         try {

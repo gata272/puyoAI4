@@ -5,9 +5,11 @@
 ## AI
 
 - 序盤3手: 既存GTR構築ロジック
-- GTR後: Beam Search
-- 評価: amaの公開評価をベースにした線形評価 + quiescence search
-- 研究用に探索深度・Beam幅を変更可能
+- 通常探索: **3ペア（現在+次2手）に制限したBeam Search**
+- 評価: amaの公開評価をベースにした線形評価 + 発火点Transfer評価 + quiescence search
+- 3個ちょうどの同色塊を「発火点候補」として保持し、`B → A` の依存関係を上方向・横方向の両方で評価
+- 発火点を壊さず、次の色へ受け渡す構造 `C → B → A`、`D → C → B → A` を優先
+- 研究用に探索Beam幅を変更可能（探索深度は最大3）
 
 AIコアは `ai/` 以下に分離し、Webゲーム本体の `puyoSim.js` とは独立したC++ Simulatorを使用します。
 

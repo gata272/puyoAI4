@@ -1,4 +1,4 @@
-/* WASM worker for PuyoAI5 */
+/* WASM worker for PuyoAI10 trigger-transfer AI */
 import createPuyoAI from './puyoAI_wasm.mjs';
 
 let moduleInstance = null;
