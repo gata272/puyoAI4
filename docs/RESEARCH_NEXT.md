@@ -30,3 +30,15 @@
 - A `chainPotential` feature rewards extendable 2/3-puyo groups.
 - If safe placements exist, game-over placements are excluded. If none exist,
   the least-bad game-over placement is returned instead of reporting no move.
+
+## Trigger relay construction (PuyoAI8.1)
+
+The current chain-building experiment targets a concrete delayed-trigger relay:
+
+1. Find an existing exact-3 group of color A.
+2. Construct a vertical B->A pair above it, giving `A(3) / B / A`.
+3. Do not fire A while constructing the relay; the separating B is intentional.
+4. Build B into a trigger on a later turn by dropping additional B puyos next to the relay B.
+5. When B fires, the relay B disappears and the upper A falls onto the existing A(3), making A(4), producing the next chain.
+
+The evaluator rewards such latent relays, especially when the relay B already has a 1- or 2-puyo support group and therefore needs only a small number of future B drops to fire. A 3-puyo support is not rewarded because adding the relay B would immediately fire B and destroy the intended delayed construction.
