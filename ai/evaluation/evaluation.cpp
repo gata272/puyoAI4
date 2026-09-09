@@ -151,7 +151,8 @@ double evaluate(
         f.waste14 * weights.waste14 +
         f.side * weights.side +
         f.nuisance * weights.nuisance +
-        triggerRelayScore(board);
+        triggerRelayScore(board) +
+        triggerQueueScore(board, context.lookahead);
 
     // ama's beam evaluator always runs quiet search with a tactical drop
     // depth of 3.  Keep the parameter configurable for benchmarking/tuning.
@@ -170,10 +171,17 @@ double actionPenalty(
     const Features a = extractStaticFeatures(before);
     const Features b = extractStaticFeatures(result.board);
     const double tear = std::max(0.0, (a.link2 + a.link3) - (b.link2 + b.link3));
+    // Protect a strong exact-3 anchor unless the move actually fires it.
+    // This is the "mark the trigger and keep it alive" part of the policy.
+    const double anchorLoss = result.chains > 0
+        ? 0.0
+        : std::max(0.0, triggerAnchorValue(before) -
+                         triggerAnchorValue(result.board));
     // ama uses the number of popped puyos as its waste action feature.
     const double waste = static_cast<double>(result.erased);
     const double movement = std::abs(move.x - 2) + std::min(move.rotation, 4 - move.rotation);
-    return (tear + 0.25 * movement) * weights.tear + waste * weights.waste;
+    return (tear + 0.25 * movement) * weights.tear + waste * weights.waste
+         - 1.5 * anchorLoss;
 }
 
 } // namespace puyo
