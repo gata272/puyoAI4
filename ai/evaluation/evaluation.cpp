@@ -1,4 +1,5 @@
 #include "evaluation.h"
+#include "trigger_route.h"
 
 #include <algorithm>
 #include <array>
@@ -149,7 +150,8 @@ double evaluate(
         f.link3 * weights.link3 +
         f.waste14 * weights.waste14 +
         f.side * weights.side +
-        f.nuisance * weights.nuisance;
+        f.nuisance * weights.nuisance +
+        triggerRelayScore(board);
 
     // ama's beam evaluator always runs quiet search with a tactical drop
     // depth of 3.  Keep the parameter configurable for benchmarking/tuning.

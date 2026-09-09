@@ -1,37 +1,37 @@
 #include "trigger_route.h"
 
+#include "../simulation/simulator.h"
+
 #include <algorithm>
 #include <array>
-#include <cstdint>
-#include <functional>
 #include <queue>
 #include <vector>
 
 namespace puyo {
 namespace {
 
-struct CellPos { int x; int y; };
-struct TriggerGroup {
-    Cell color = Cell::Empty;
-    std::vector<CellPos> cells;
-};
+struct Pos { int x; int y; };
 
-bool isColor(Cell c) {
+bool color(Cell c) {
     return c != Cell::Empty && c != Cell::Garbage;
 }
 
-std::vector<CellPos> component(const Board& board, int sx, int sy) {
+bool inside(int x, int y) {
+    return x >= 0 && x < BOARD_WIDTH && y >= 0 && y < VISIBLE_HEIGHT;
+}
+
+std::vector<Pos> component(const Board& board, int sx, int sy) {
+    std::vector<Pos> out;
     const Cell c = board.get(sx, sy);
-    std::vector<CellPos> out;
-    if (!isColor(c)) return out;
+    if (!color(c)) return out;
 
     bool seen[BOARD_WIDTH][VISIBLE_HEIGHT]{};
-    std::queue<CellPos> q;
+    std::queue<Pos> q;
     q.push({sx, sy});
     seen[sx][sy] = true;
 
     while (!q.empty()) {
-        const CellPos p = q.front();
+        const Pos p = q.front();
         q.pop();
         out.push_back(p);
 
@@ -40,8 +40,7 @@ std::vector<CellPos> component(const Board& board, int sx, int sy) {
         for (int d = 0; d < 4; ++d) {
             const int nx = p.x + dx[d];
             const int ny = p.y + dy[d];
-            if (nx < 0 || nx >= BOARD_WIDTH ||
-                ny < 0 || ny >= VISIBLE_HEIGHT || seen[nx][ny]) continue;
+            if (!inside(nx, ny) || seen[nx][ny]) continue;
             if (board.get(nx, ny) == c) {
                 seen[nx][ny] = true;
                 q.push({nx, ny});
@@ -51,178 +50,178 @@ std::vector<CellPos> component(const Board& board, int sx, int sy) {
     return out;
 }
 
-std::vector<TriggerGroup> findTriggerGroups(const Board& board) {
-    std::vector<TriggerGroup> groups;
+bool contains(const std::vector<Pos>& cells, int x, int y) {
+    return std::any_of(cells.begin(), cells.end(), [&](const Pos& p) {
+        return p.x == x && p.y == y;
+    });
+}
+
+bool hasFourOrMore(const Board& board) {
     bool visited[BOARD_WIDTH][VISIBLE_HEIGHT]{};
     for (int y = 0; y < VISIBLE_HEIGHT; ++y) {
         for (int x = 0; x < BOARD_WIDTH; ++x) {
-            if (visited[x][y] || !isColor(board.get(x, y))) continue;
-            auto cells = component(board, x, y);
+            if (visited[x][y] || !color(board.get(x, y))) continue;
+            const auto cells = component(board, x, y);
             for (const auto& p : cells) visited[p.x][p.y] = true;
-            if (cells.size() == 3) groups.push_back({board.get(x, y), std::move(cells)});
+            if (cells.size() >= 4) return true;
         }
     }
-    return groups;
+    return false;
 }
 
-std::vector<CellPos> triggerCells(const Board& board, const TriggerGroup& group) {
-    std::vector<CellPos> out;
+void placeWithoutResolve(Board& board, const PuyoPair& pair, const Move& move,
+                         Pos& mainPos, Pos& subPos) {
+    const int y = Simulator::findDropY(board, pair, move.x, move.rotation);
+    mainPos = {move.x, y};
+    switch (move.rotation & 3) {
+        case 0: subPos = {move.x, y + 1}; break;
+        case 1: subPos = {move.x - 1, y}; break;
+        case 2: subPos = {move.x, y - 1}; break;
+        default: subPos = {move.x + 1, y}; break;
+    }
+    board.set(mainPos.x, mainPos.y, static_cast<Cell>(pair.main));
+    board.set(subPos.x, subPos.y, static_cast<Cell>(pair.sub));
+}
+
+// Count existing B puyos connected to a prospective B cell, excluding the
+// prospective cell itself.  A size of 2 is ideal: the newly inserted B makes
+// a 3-group, and one later B drop can finish it.  Size 3 is intentionally
+// rejected because it would fire immediately when the relay is constructed.
+int adjacentSupport(const Board& board, Pos prospective, Cell b) {
     bool seen[BOARD_WIDTH][VISIBLE_HEIGHT]{};
-    for (const auto& p : group.cells) {
-        constexpr int dx[] = {1, -1, 0, 0};
-        constexpr int dy[] = {0, 0, 1, -1};
+    std::queue<Pos> q;
+    int count = 0;
+
+    constexpr int dx[] = {1, -1, 0, 0};
+    constexpr int dy[] = {0, 0, 1, -1};
+    for (int d = 0; d < 4; ++d) {
+        const int nx = prospective.x + dx[d];
+        const int ny = prospective.y + dy[d];
+        if (!inside(nx, ny) || seen[nx][ny] || board.get(nx, ny) != b) continue;
+        seen[nx][ny] = true;
+        q.push({nx, ny});
+    }
+
+    while (!q.empty()) {
+        const Pos p = q.front();
+        q.pop();
+        ++count;
         for (int d = 0; d < 4; ++d) {
-            const int x = p.x + dx[d];
-            const int y = p.y + dy[d];
-            if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= VISIBLE_HEIGHT ||
-                seen[x][y] || board.get(x, y) != Cell::Empty) continue;
-            seen[x][y] = true;
-            out.push_back({x, y});
+            const int nx = p.x + dx[d];
+            const int ny = p.y + dy[d];
+            if (!inside(nx, ny) || seen[nx][ny] || board.get(nx, ny) != b) continue;
+            seen[nx][ny] = true;
+            q.push({nx, ny});
+        }
+    }
+    return count;
+}
+
+// Return the best number of future B puyos required to make the relay B fire.
+// 0 means the B is already a 3-group after inserting the B from B->A, so one
+// additional B is required. Larger values mean a weaker but still viable
+// latent trigger. We cap the useful range at 3 future puyos.
+int relayCost(int support) {
+    if (support < 0 || support >= 3) return 99;
+    return std::max(1, 3 - support);
+}
+
+struct RelayCandidate {
+    int cost = 99;
+    int x = -1;
+    int y = -1;
+    int support = 0;
+};
+
+std::vector<RelayCandidate> findRelayCandidates(const Board& board) {
+    std::vector<RelayCandidate> out;
+
+    // The construction is specifically B below A, so use the vertical
+    // rotation with B as main and A as sub.  Enumerate all actual legal drops;
+    // this makes the motif consistent with the simulator's collision/gravity
+    // rules instead of assuming a cell can be filled arbitrarily.
+    for (int a = 1; a <= 4; ++a) {
+        for (int b = 1; b <= 4; ++b) {
+            if (a == b) continue;
+            const PuyoPair pair{b, a};
+            for (int x = 0; x < BOARD_WIDTH; ++x) {
+                Move move{x, 0, true};
+                const int y = Simulator::findDropY(board, pair, x, 0);
+                if (y < 0 || y + 1 >= VISIBLE_HEIGHT) continue;
+
+                Board placed = board;
+                Pos mainPos{}, subPos{};
+                placeWithoutResolve(placed, pair, move, mainPos, subPos);
+                if (subPos.y >= VISIBLE_HEIGHT) continue;
+
+                // The relay must not fire while it is being constructed.
+                if (hasFourOrMore(placed)) continue;
+
+                // The upper A must be separated from the existing A trigger by
+                // exactly one B.  Find an exact-3 A component immediately
+                // below that B.
+                if (placed.get(mainPos.x, mainPos.y) != static_cast<Cell>(b) ||
+                    placed.get(subPos.x, subPos.y) != static_cast<Cell>(a)) {
+                    continue;
+                }
+                if (mainPos.x != subPos.x || subPos.y != mainPos.y + 1) continue;
+
+                bool foundA = false;
+                for (int ay = 0; ay < mainPos.y; ++ay) {
+                    const int yBelow = mainPos.y - 1;
+                    if (ay != yBelow) continue;
+                    if (placed.get(mainPos.x, yBelow) != static_cast<Cell>(a)) continue;
+                    const auto ag = component(placed, mainPos.x, yBelow);
+                    if (ag.size() != 3 || contains(ag, subPos.x, subPos.y)) continue;
+                    foundA = true;
+                }
+                if (!foundA) continue;
+
+                const int support = adjacentSupport(placed, mainPos, static_cast<Cell>(b));
+                const int cost = relayCost(support);
+                if (cost >= 99) continue;
+
+                out.push_back({cost, mainPos.x, mainPos.y, support});
+            }
         }
     }
     return out;
 }
 
-bool samePos(const CellPos& a, const CellPos& b) {
-    return a.x == b.x && a.y == b.y;
-}
-
-// Test one concrete A -> B transfer.  A is a 3-puyo trigger group.  We put an
-// A at its trigger cell and a B adjacent to it (the four legal pair
-// orientations), remove A, apply gravity, and verify that the inserted B is
-// now part of the selected B trigger group.
-bool canTransferToGroup(
-    const Board& board,
-    const TriggerGroup& a,
-    const CellPos& aTrigger,
-    const TriggerGroup& b
-) {
-    constexpr int dx[] = {0, -1, 0, 1};
-    constexpr int dy[] = {1, 0, -1, 0};
-
-    for (int r = 0; r < 4; ++r) {
-        const CellPos bPos{aTrigger.x + dx[r], aTrigger.y + dy[r]};
-        if (bPos.x < 0 || bPos.x >= BOARD_WIDTH ||
-            bPos.y < 0 || bPos.y >= BOARD_HEIGHT) continue;
-        if (board.get(bPos.x, bPos.y) != Cell::Empty) continue;
-
-        bool overlapsA = false;
-        for (const auto& p : a.cells) {
-            if (samePos(p, bPos)) { overlapsA = true; break; }
-        }
-        if (overlapsA) continue;
-
-        Board next = board;
-        for (const auto& p : a.cells) next.set(p.x, p.y, Cell::Empty);
-        next.set(aTrigger.x, aTrigger.y, Cell::Empty);
-        next.set(bPos.x, bPos.y, b.color);
-
-        // Compute the destination of the inserted B before gravity.
-        int bFinalY = 0;
-        for (int y = 0; y < bPos.y; ++y) {
-            if (next.get(bPos.x, y) != Cell::Empty) ++bFinalY;
-        }
-
-        // Map every original B cell to its post-gravity position.  This lets
-        // us distinguish the intended target 3-group from an unrelated group
-        // of the same color elsewhere on the board.
-        std::vector<CellPos> targetAfter;
-        targetAfter.reserve(b.cells.size());
-        for (const auto& p : b.cells) {
-            int fy = 0;
-            for (int y = 0; y < p.y; ++y) {
-                if (next.get(p.x, y) != Cell::Empty) ++fy;
-            }
-            targetAfter.push_back({p.x, fy});
-        }
-
-        for (int x = 0; x < BOARD_WIDTH; ++x) {
-            int writeY = 0;
-            std::array<Cell, BOARD_HEIGHT> column{};
-            for (int y = 0; y < BOARD_HEIGHT; ++y) {
-                const Cell c = next.get(x, y);
-                if (c != Cell::Empty) column[writeY++] = c;
-            }
-            for (int y = 0; y < BOARD_HEIGHT; ++y) next.set(x, y, column[y]);
-        }
-
-        if (bFinalY < 0 || bFinalY >= VISIBLE_HEIGHT ||
-            next.get(bPos.x, bFinalY) != b.color) continue;
-
-        const auto insertedComponent = component(next, bPos.x, bFinalY);
-        if (insertedComponent.size() < 4) continue;
-
-        int originalBInComponent = 0;
-        for (const auto& p : targetAfter) {
-            for (const auto& q : insertedComponent) {
-                if (samePos(p, q)) {
-                    ++originalBInComponent;
-                    break;
-                }
-            }
-        }
-        if (originalBInComponent >= 3) return true;
-    }
-    return false;
-}
-
-std::vector<std::vector<int>> buildGraph(
-    const Board& board,
-    const std::vector<TriggerGroup>& groups
-) {
-    std::vector<std::vector<int>> edge(groups.size());
-    for (std::size_t i = 0; i < groups.size(); ++i) {
-        const auto triggers = triggerCells(board, groups[i]);
-        for (std::size_t j = 0; j < groups.size(); ++j) {
-            if (i == j || groups[i].color == groups[j].color) continue;
-            bool found = false;
-            for (const auto& t : triggers) {
-                if (canTransferToGroup(board, groups[i], t, groups[j])) {
-                    found = true;
-                    break;
-                }
-            }
-            if (found) edge[i].push_back(static_cast<int>(j));
-        }
-    }
-    return edge;
-}
-
-int longestPath(const std::vector<std::vector<int>>& edge) {
-    const int n = static_cast<int>(edge.size());
-    int best = 0;
-
-    // Boards normally contain only a handful of 3-groups.  DFS over simple
-    // paths is therefore cheap, while allowing the same color to occur again
-    // as long as it is a different trigger group.  A 12-step cap keeps the
-    // feature bounded and directly targets the user's 10+ chain objective.
-    std::function<void(int, std::uint64_t, int)> dfs =
-        [&](int cur, std::uint64_t mask, int len) {
-            best = std::max(best, len);
-            if (len >= 12 || n > 63) return;
-            for (const int next : edge[cur]) {
-                const std::uint64_t bit = 1ULL << next;
-                if (mask & bit) continue;
-                dfs(next, mask | bit, len + 1);
-            }
-        };
-
-    if (n <= 63) {
-        for (int i = 0; i < n; ++i) dfs(i, 1ULL << i, 1);
-    }
-    return best;
-}
-
 } // namespace
 
 int triggerRouteLength(const Board& board) {
-    return longestPath(buildGraph(board, findTriggerGroups(board)));
+    // A route step is now a concrete latent relay, not merely adjacency of
+    // two existing 3-groups.  This is intentionally conservative: one board
+    // state can expose several relay opportunities, but we count only the
+    // strongest one here.  The beam search separately preserves relay-rich
+    // states.
+    const auto candidates = findRelayCandidates(board);
+    if (candidates.empty()) return 0;
+    const int bestCost = std::min_element(
+        candidates.begin(), candidates.end(),
+        [](const RelayCandidate& a, const RelayCandidate& b) {
+            return a.cost < b.cost;
+        })->cost;
+    return 4 - bestCost; // 3 = one B away, 2 = two B away, 1 = three B away.
+}
+
+double triggerRelayScore(const Board& board) {
+    const auto candidates = findRelayCandidates(board);
+    double score = 0.0;
+    for (const auto& c : candidates) {
+        // Strongly prefer a relay that needs only one future B.  Multiple
+        // independent relays are useful because the search can later choose
+        // whichever one matches the incoming queue.
+        const double strength = (c.cost == 1 ? 12000.0 :
+                                 c.cost == 2 ? 4500.0 : 1000.0);
+        score += strength;
+    }
+    return std::min(score, 30000.0);
 }
 
 double triggerRouteScore(const Board& board) {
-    const int length = triggerRouteLength(board);
-    if (length <= 1) return 0.0;
-    return static_cast<double>(length * length * length) * 500.0;
+    return triggerRelayScore(board);
 }
 
 } // namespace puyo

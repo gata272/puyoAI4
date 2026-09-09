@@ -4,13 +4,27 @@
 
 namespace puyo {
 
-// Measures the longest color-to-color trigger-transfer route that is already
-// encoded in the board.  A -> B means: fire a 3-puyo A trigger with an A/B
-// vertical or horizontal pair, then the B puyo falls/connects to a 3-puyo B
-// group and becomes the next trigger.  This is deliberately different from
-// generic "chain potential": it represents an ordered trigger dependency.
+// Legacy trigger-route metric. Kept for compatibility with the beam search,
+// but now backed by the trigger-relay structure below.
 int triggerRouteLength(const Board& board);
 
+// Score for the user's trigger-relay construction:
+//
+//   A A A          <- an existing 3-puyo A trigger
+//     B
+//     A            <- B -> A is stacked above it
+//
+// The A is intentionally separated from the lower A group by B.  When B is
+// fired elsewhere on a later turn, B disappears and the upper A falls onto
+// the lower A group, making A into 4 and causing the next chain.
+//
+// The score also prefers B positions that already have a 1- or 2-puyo B
+// support group, because only a small number of later B drops are then needed
+// to fire B.  A support group of 3 is not rewarded: placing the B would make
+// four immediately and destroy the intended delayed relay.
+double triggerRelayScore(const Board& board);
+
+// Compatibility helper used by older code.
 double triggerRouteScore(const Board& board);
 
 } // namespace puyo
