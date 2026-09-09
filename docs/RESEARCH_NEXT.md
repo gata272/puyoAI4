@@ -24,7 +24,7 @@
 
 ## Maximum-chain focused revision
 
-- Post-GTR search can consume six pairs (current + five lookahead).
+- Main search is constrained to three pairs (current + two lookahead), matching the intended human-information limit.
 - Root selection is maximum-chain-first, then normal evaluation as the tie-breaker.
 - Immediate chains receive a nonlinear `chains^4` reward.
 - A `chainPotential` feature rewards extendable 2/3-puyo groups.
@@ -42,3 +42,18 @@ The current chain-building experiment targets a concrete delayed-trigger relay:
 5. When B fires, the relay B disappears and the upper A falls onto the existing A(3), making A(4), producing the next chain.
 
 The evaluator rewards such latent relays, especially when the relay B already has a 1- or 2-puyo support group and therefore needs only a small number of future B drops to fire. A 3-puyo support is not rewarded because adding the relay B would immediately fire B and destroy the intended delayed construction.
+
+## PuyoAI10: persistent trigger-transfer construction
+
+PuyoAI10 changes the research objective from direct long-horizon maximum-chain search to a human-information-constrained trigger-transfer policy.
+
+- The AI receives and uses only the current pair plus two lookahead pairs (3 pairs total).
+- Exact-3 groups are treated as candidate marked triggers.
+- A trigger dependency `B -> A` exists when removing an exact-3 B group and applying gravity makes an A group reach four or more.
+- Dependencies are recognized in both vertical and horizontal arrangements, so motifs such as `A / BAAA` and `A / B / AAA` are both represented by the same dependency test.
+- A route such as `D -> C -> B -> A` receives a strong structural reward.
+- The strongest exact-3 anchor is protected from accidental destruction unless the move actually resolves a chain.
+- The visible three-pair queue is used only as compatibility information: if a useful predecessor color is not present, the anchor remains valuable and the AI may wait instead of forcing a destructive construction.
+- `Simulator::resolveBoard()` exposes the exact production resolution rules to the trigger planner, avoiding a second, inconsistent chain implementation.
+
+The intention is to repeatedly move the marked trigger upward or sideways rather than spending the trigger immediately. This can build a long latent dependency chain while respecting the three-pair information limit.
