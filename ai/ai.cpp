@@ -20,7 +20,7 @@ Move AI::chooseMove(
     const Board& board,
     const std::vector<PuyoPair>& pieces
 ) {
-    return chooseMove(turn, board, pieces, 6, 12);
+    return chooseMove(turn, board, pieces, 3, 12);
 }
 
 Move AI::chooseMove(
