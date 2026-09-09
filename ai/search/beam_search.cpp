@@ -51,6 +51,7 @@ double chainReward(int chains) {
 std::vector<Node> expandNode(
     const Node& parent,
     const PuyoPair& pair,
+    const std::vector<PuyoPair>& remainingPieces,
     const Weights& weights,
     int nextDepth,
     int maxDepth
@@ -67,6 +68,10 @@ std::vector<Node> expandNode(
 
         const bool deathMove = sim.gameOver && !sim.allClear;
         EvaluationContext ctx;
+        // The trigger planner is deliberately limited to the same three
+        // visible pairs a human-style policy is allowed to use.
+        const int remaining = std::min(3, static_cast<int>(remainingPieces.size()));
+        ctx.lookahead.assign(remainingPieces.begin(), remainingPieces.begin() + remaining);
         // Only terminal candidates pay the expensive ama-style quiet search.
         ctx.quiescenceDepth = (nextDepth >= maxDepth) ? 3 : 0;
 
@@ -185,6 +190,7 @@ Move chooseRoot(
             auto children = expandNode(
                 node,
                 pieces[depth],
+                std::vector<PuyoPair>(pieces.begin() + depth, pieces.end()),
                 weights,
                 depth + 1,
                 horizon
