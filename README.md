@@ -6,10 +6,12 @@
 
 - 序盤3手: 既存GTR構築ロジック
 - 通常探索: **3ペア（現在+次2手）に制限したBeam Search**
-- 評価: amaの公開評価をベースにした線形評価 + 発火点Transfer評価 + quiescence search
+- 評価: amaの公開評価をベースにした線形評価 + Long Chain Potential + 発火点Transfer評価 + quiescence search
 - 3個ちょうどの同色塊を「発火点候補」として保持し、`B → A` の依存関係を上方向・横方向の両方で評価
 - 発火点を壊さず、次の色へ受け渡す構造 `C → B → A`、`D → C → B → A` を優先
 - 研究用に探索Beam幅を変更可能（探索深度は最大3）
+- Long Chain Potentialで「今の連鎖数」だけでなく、2/3連結・伸ばし先・S字形状・ツモ適合性などの潜在的な大連鎖構造を評価
+- Beamの一部をLong Chain Potentialのeliteとして保持し、中連鎖への過度な収束を抑制
 
 AIコアは `ai/` 以下に分離し、Webゲーム本体の `puyoSim.js` とは独立したC++ Simulatorを使用します。
 
@@ -112,4 +114,5 @@ docs/
   DEBUG_MODE.md
   MIGRATION.md
   RESEARCH_NEXT.md
+  LONG_CHAIN_POTENTIAL.md
 ```
