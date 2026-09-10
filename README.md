@@ -116,3 +116,7 @@ docs/
   RESEARCH_NEXT.md
   LONG_CHAIN_POTENTIAL.md
 ```
+
+## Trigger-route large-chain construction
+
+The current AI keeps the existing GTR + ama-style evaluation and 3-pair beam search, while reserving a small part of the beam for human-style trigger-transfer structures. Exact 3-groups are treated as latent anchors; 3+1 and 2+2 hand-offs are detected by hypothetical trigger removal plus gravity. A final-beam post-trigger simulation estimates chain-tail value. See `docs/TRIGGER_ROUTE_POLICY.md`.

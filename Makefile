@@ -1,5 +1,5 @@
 CXX ?= g++
-CXXFLAGS ?= -std=c++20 -O2 -Wall -Wextra -pedantic
+CXXFLAGS ?= -std=c++20 -O3 -Wall -Wextra -pedantic
 INCLUDES := -I.
 
 AI_SOURCES := \
