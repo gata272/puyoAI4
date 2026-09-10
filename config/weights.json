@@ -17,6 +17,7 @@
     "side": 0,
     "nuisance": -250,
     "tear": -250,
-    "waste": -250
+    "waste": -250,
+    "long_chain_potential": 1200
   }
 }

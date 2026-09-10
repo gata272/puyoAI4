@@ -4,7 +4,8 @@
   "lookaheadPairs": 3,
   "quiescenceDrop": 3,
   "discount": 0.85,
-  "objective": "3-pair human-information constraint with persistent trigger-transfer construction",
-  "chainReward": "1-3 chains penalized; 4 small reward; 5+ 20000 * chains^4",
-  "notes": "AI marks a strong exact-3 trigger, then prioritizes preserving it and transferring the trigger to a new color within the visible three-pair horizon. Vertical and horizontal trigger dependencies are recognized; missing desired colors can be deferred rather than destroying the anchor."
+  "objective": "3-pair human-information constraint with long-chain potential, trigger transfer, templates, and beam diversity",
+  "chainReward": "small chains are treated as premature firing; actual chain count remains important but no longer lexicographically dominates latent potential",
+  "longChainPotential": "0-100 static score combining 2/3-groups, reachable extensions, S-shape construction, human forms, trigger route, queue compatibility, and height pressure",
+  "notes": "AI preserves exact-3 triggers, evaluates latent extension potential, keeps a potential-elite beam subset, and uses only current+2 NEXT pairs. It does not inspect hidden future pieces."
 }
