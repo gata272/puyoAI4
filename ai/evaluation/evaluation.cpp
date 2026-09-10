@@ -1,5 +1,6 @@
 #include "evaluation.h"
 #include "trigger_route.h"
+#include "long_chain_potential.h"
 
 #include <algorithm>
 #include <array>
@@ -143,6 +144,7 @@ double evaluate(
     double score =
         f.form * weights.form +
         f.chainPotential * weights.chainPotential +
+        longChainPotential(board, context.lookahead) * weights.longChainPotential +
         f.shape * weights.shape +
         f.well * weights.well +
         f.bump * weights.bump +
