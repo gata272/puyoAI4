@@ -57,3 +57,12 @@ PuyoAI10 changes the research objective from direct long-horizon maximum-chain s
 - `Simulator::resolveBoard()` exposes the exact production resolution rules to the trigger planner, avoiding a second, inconsistent chain implementation.
 
 The intention is to repeatedly move the marked trigger upward or sideways rather than spending the trigger immediately. This can build a long latent dependency chain while respecting the three-pair information limit.
+
+
+## PuyoAI11: Long Chain Potential
+
+PuyoAI11 keeps the human-information constraint of three visible pairs, but changes the search objective from immediate maximum-chain preference toward latent large-chain construction. The new evaluator scores extendable 2/3-groups, reachable extension cells, construction shape, queue compatibility and height pressure. Existing ama form matching and trigger-transfer evaluation remain active.
+
+The beam also reserves a potential elite so a quiet but promising construction is not removed solely because its immediate evaluator score is lower. Final selection uses accumulated search score plus a moderate actual-chain bonus and latent-potential bonus instead of lexicographic maximum-chain-first selection.
+
+This revision is deliberately conservative about hidden information: no future queue beyond the visible three pairs is read. The benchmark must be repeated on larger fixed seed corpora before claiming a statistically significant improvement.
