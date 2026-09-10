@@ -180,4 +180,81 @@ double triggerQueueScore(const Board& board, const std::vector<PuyoPair>& pieces
 }
 double triggerRouteScore(const Board& board) { return triggerRelayScore(board); }
 
+
+double preparedGroupScore(const Board& board) {
+    const auto gs = groupsOf(board, 0);
+    double score = 0.0;
+    int triples = 0;
+    int pairs = 0;
+
+    for (const auto& g : gs) {
+        if (g.cells.size() == 3) {
+            ++triples;
+            // Exact 3 is the primary "marked trigger/target" state.
+            score += 1800.0;
+        } else if (g.cells.size() == 2) {
+            ++pairs;
+            score += 350.0;
+        }
+    }
+
+    // A triple that can be turned into another colour's 4+ group after its
+    // activation is precisely the user's 3+1 / 2+2 hand-off motif.
+    for (const auto& trigger : groupsOf(board, 3)) {
+        for (int c = 1; c <= 4; ++c) {
+            if (c == static_cast<int>(trigger.color)) continue;
+            if (dependsOn(board, trigger, static_cast<Cell>(c))) {
+                score += 6000.0;
+            }
+        }
+    }
+
+    score += std::min(triples, 6) * 500.0;
+    score += std::min(pairs, 8) * 100.0;
+    return std::min(score, 60000.0);
+}
+
+double postTriggerTailScore(const Board& board) {
+    double best = 0.0;
+
+    // Treat each exact-3 group as a hypothetical trigger.  activateGroup()
+    // removes only that group, then runs the real simulator resolution.  This
+    // exposes the chain tail that is invisible in the pre-trigger board.
+    for (const auto& trigger : groupsOf(board, 3)) {
+        Board after;
+        const int chains = activateGroup(board, trigger, &after);
+        if (chains <= 0) continue;
+
+        // Count groups which are now fireable.  These are the groups that were
+        // latent before the trigger and became part of the post-trigger tail.
+        int newlyFireable = 0;
+        for (const auto& g : groupsOf(after, 0)) {
+            if (g.cells.size() >= 4) ++newlyFireable;
+        }
+
+        best = std::max(best,
+            static_cast<double>(chains) * 9000.0 +
+            static_cast<double>(newlyFireable) * 3500.0);
+    }
+    return std::min(best, 80000.0);
+}
+
+double prematureTriggerRisk(const Board& board) {
+    bool hasFiringGroup = false;
+    for (const auto& g : groupsOf(board, 0)) {
+        if (g.cells.size() >= 4) {
+            hasFiringGroup = true;
+            break;
+        }
+    }
+    if (!hasFiringGroup) return 0.0;
+
+    const double prepared = preparedGroupScore(board);
+    const double route = triggerRouteScore(board);
+    // Only penalize premature firing when there is meaningful latent structure
+    // that the firing would cut short.
+    const double latent = prepared + route;
+    return latent > 12000.0 ? std::min(30000.0, latent * 0.20) : 0.0;
+}
+
 } // namespace puyo
