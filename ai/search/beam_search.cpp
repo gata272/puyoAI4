@@ -3,6 +3,7 @@
 #include "move_generator.h"
 #include "../evaluation/evaluation.h"
 #include "../evaluation/trigger_route.h"
+#include "../evaluation/long_chain_potential.h"
 #include "../simulation/simulator.h"
 
 #include <algorithm>
@@ -23,6 +24,7 @@ struct Node {
     double score = 0.0;
     int maxChain = 0;
     int triggerRoute = 0;
+    double longPotential = 0.0;
     bool gameOver = false;
 };
 
@@ -86,6 +88,7 @@ std::vector<Node> expandNode(
         candidate.score = parent.score + local;
         candidate.maxChain = std::max(parent.maxChain, sim.chains);
         candidate.triggerRoute = std::max(parent.triggerRoute, triggerRouteLength(sim.board));
+        candidate.longPotential = longChainPotential(sim.board, ctx.lookahead);
         candidate.gameOver = deathMove;
 
         if (deathMove) death.push_back(std::move(candidate));
@@ -115,6 +118,7 @@ void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
     std::sort(candidates.begin(), candidates.end(), betterForBeam);
 
     const int routeSlots = std::max(1, beamWidth / 4);
+    const int potentialSlots = std::max(1, beamWidth / 4);
     std::vector<Node> selected;
     selected.reserve(static_cast<std::size_t>(beamWidth));
 
@@ -143,6 +147,16 @@ void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
         }
     }
 
+    auto potentialRank = candidates;
+    std::sort(potentialRank.begin(), potentialRank.end(), [](const Node& a, const Node& b) {
+        if (a.longPotential != b.longPotential) return a.longPotential > b.longPotential;
+        if (a.triggerRoute != b.triggerRoute) return a.triggerRoute > b.triggerRoute;
+        return a.score > b.score;
+    });
+    for (int i = 0; i < potentialSlots && i < static_cast<int>(potentialRank.size()); ++i) {
+        addIfNew(potentialRank[static_cast<std::size_t>(i)]);
+    }
+
     for (const auto& node : candidates) {
         if (static_cast<int>(selected.size()) >= beamWidth) break;
         addIfNew(node);
@@ -151,11 +165,19 @@ void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
     candidates.swap(selected);
 }
 
+double finalUtility(const Node& n) {
+    // Keep actual chain count important, but no longer make it an absolute
+    // lexicographic gate. A quiet 5-chain construction with much higher latent
+    // potential can now beat a prematurely-cashed 7-chain.
+    return n.score + static_cast<double>(n.maxChain) * 70000.0
+         + n.longPotential * 5000.0;
+}
+
 bool betterFinal(const Node& a, const Node& b) {
-    // Research objective: maximize the largest single chain first. The
-    // heuristic score is only a tie-breaker between equal maximum chains.
-    if (a.maxChain != b.maxChain) return a.maxChain > b.maxChain;
-    return a.score > b.score;
+    const double ua = finalUtility(a);
+    const double ub = finalUtility(b);
+    if (ua != ub) return ua > ub;
+    return a.maxChain > b.maxChain;
 }
 
 Move chooseRoot(
@@ -187,14 +209,13 @@ Move chooseRoot(
         next.reserve(static_cast<std::size_t>(beamWidth) * 24U);
 
         for (const Node& node : beam) {
+            std::vector<PuyoPair> remainingPieces;
+            const std::size_t start = static_cast<std::size_t>(depth);
+            const std::size_t end = std::min(pieces.size(), start + 3);
+            remainingPieces.assign(pieces.begin() + static_cast<std::ptrdiff_t>(start),
+                                   pieces.begin() + static_cast<std::ptrdiff_t>(end));
             auto children = expandNode(
-                node,
-                pieces[depth],
-                std::vector<PuyoPair>(pieces.begin() + depth, pieces.end()),
-                weights,
-                depth + 1,
-                horizon
-            );
+                node, pieces[depth], remainingPieces, weights, depth + 1, horizon);
             for (auto& child : children) {
                 next.push_back(std::move(child));
             }
