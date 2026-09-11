@@ -4,6 +4,7 @@
 #include "../evaluation/evaluation.h"
 #include "../evaluation/trigger_route.h"
 #include "../evaluation/long_chain_potential.h"
+#include "../evaluation/debug_log.h"
 #include "../simulation/simulator.h"
 
 #include <algorithm>
@@ -189,6 +190,54 @@ void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
     candidates.swap(selected);
 }
 
+
+std::string debugBoard(const Board& board) {
+    std::string out;
+    out.reserve(BOARD_WIDTH * (BOARD_HEIGHT + 1));
+    for (int y = BOARD_HEIGHT - 1; y >= 0; --y) {
+        for (int x = 0; x < BOARD_WIDTH; ++x) {
+            const int v = static_cast<int>(board.get(x, y));
+            out += (v >= 1 && v <= 4) ? char('0' + v) : (v == 5 ? '#' : '.');
+        }
+        out += '\n';
+    }
+    return out;
+}
+
+double finalUtility(const Node& n);
+
+void debugBeamSummary(const std::vector<Node>& beam, int depth, int beamWidth) {
+    if (!debugLoggingEnabled()) return;
+    std::vector<const Node*> ranked;
+    ranked.reserve(beam.size());
+    for (const auto& n : beam) ranked.push_back(&n);
+    std::sort(ranked.begin(), ranked.end(), [](const Node* a, const Node* b) {
+        const double ua = finalUtility(*a);
+        const double ub = finalUtility(*b);
+        if (ua != ub) return ua > ub;
+        return a->maxChain > b->maxChain;
+    });
+
+    std::ostringstream oss;
+    oss << "\n[AI-DEBUG] beam depth=" << depth
+        << " size=" << beam.size()
+        << " beamWidth=" << beamWidth << '\n';
+    const std::size_t n = std::min<std::size_t>(ranked.size(), 8);
+    for (std::size_t i = 0; i < n; ++i) {
+        const Node& x = *ranked[i];
+        oss << "  #" << (i + 1)
+            << " root=(" << x.root.x << "," << x.root.rotation << ")"
+            << " utility=" << finalUtility(x)
+            << " score=" << x.score
+            << " maxChain=" << x.maxChain
+            << " route=" << x.triggerRoute
+            << " longPotential=" << x.longPotential
+            << " structure=" << x.structure
+            << " gameOver=" << (x.gameOver ? 1 : 0) << '\n';
+    }
+    debugLog(oss.str());
+}
+
 double finalUtility(const Node& n) {
     // Keep actual chain count important, but no longer make it an absolute
     // lexicographic gate. A quiet 5-chain construction with much higher latent
@@ -259,6 +308,7 @@ Move chooseRoot(
         pruneBeam(next, beamWidth);
 
         beam.swap(next);
+        debugBeamSummary(beam, depth + 1, beamWidth);
 
         // Once every surviving branch is a game-over placement, there is no
         // future piece to search. Keep the best one and finish.
@@ -291,7 +341,23 @@ Move chooseRoot(
     );
 
     if (best == beam.end() || !best->root.valid) {
+        if (debugLoggingEnabled()) debugLog("[AI-DEBUG] no valid root move");
         return {-1, 0, false};
+    }
+
+    if (debugLoggingEnabled()) {
+        std::ostringstream oss;
+        oss << "[AI-DEBUG] SELECT root=(" << best->root.x << "," << best->root.rotation
+            << ") utility=" << finalUtility(*best)
+            << " score=" << best->score
+            << " maxChain=" << best->maxChain
+            << " route=" << best->triggerRoute
+            << " longPotential=" << best->longPotential
+            << " structure=" << best->structure
+            << " gameOver=" << (best->gameOver ? 1 : 0) << "\n"
+            << "[AI-DEBUG] selected board (top->bottom):\n"
+            << debugBoard(best->board);
+        debugLog(oss.str());
     }
     return best->root;
 }
