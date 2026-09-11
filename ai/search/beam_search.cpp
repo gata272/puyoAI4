@@ -4,6 +4,7 @@
 #include "../evaluation/evaluation.h"
 #include "../evaluation/trigger_route.h"
 #include "../evaluation/long_chain_potential.h"
+#include "../evaluation/chain_blueprint.h"
 #include "../evaluation/debug_log.h"
 #include "../simulation/simulator.h"
 
@@ -27,6 +28,8 @@ struct Node {
     double score = 0.0;
     int maxChain = 0;
     int triggerRoute = 0;
+    int blueprintPath = 0;
+    double blueprintScore = 0.0;
     double longPotential = 0.0;
     double structure = 0.0;
     bool gameOver = false;
@@ -91,7 +94,19 @@ std::vector<Node> expandNode(
         candidate.root = parent.root.valid ? parent.root : move;
         candidate.score = parent.score + local;
         candidate.maxChain = std::max(parent.maxChain, sim.chains);
-        candidate.triggerRoute = std::max(parent.triggerRoute, triggerRouteLength(sim.board));
+        // The recursive blueprint is the expensive part of the evaluator.
+        // During intermediate beam layers use a one-step dependency scan; at
+        // the terminal layer use the full sequential blueprint. This keeps
+        // the 3-pair information constraint while making the feature usable
+        // in a browser.
+        // Keep intermediate expansion extremely cheap. The full Chain
+        // Blueprint is evaluated on the final surviving beam below. During
+        // pruning, the existing prepared-group and long-potential features
+        // preserve construction diversity without spending recursive graph
+        // analysis on every generated child.
+        candidate.triggerRoute = parent.triggerRoute;
+        candidate.blueprintPath = parent.blueprintPath;
+        candidate.blueprintScore = 0.0;
         candidate.longPotential = longChainPotential(sim.board, ctx.lookahead);
         // Structural guidance is deliberately strongest while the branch is
         // quiet.  Once a real chain has fired, the normal chain objective and
@@ -151,6 +166,7 @@ void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
 
     auto routeRank = candidates;
     std::sort(routeRank.begin(), routeRank.end(), [](const Node& a, const Node& b) {
+        if (a.blueprintPath != b.blueprintPath) return a.blueprintPath > b.blueprintPath;
         if (a.triggerRoute != b.triggerRoute) return a.triggerRoute > b.triggerRoute;
         if (a.maxChain != b.maxChain) return a.maxChain > b.maxChain;
         return a.score > b.score;
@@ -164,6 +180,7 @@ void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
     auto potentialRank = candidates;
     std::sort(potentialRank.begin(), potentialRank.end(), [](const Node& a, const Node& b) {
         if (a.longPotential != b.longPotential) return a.longPotential > b.longPotential;
+        if (a.blueprintPath != b.blueprintPath) return a.blueprintPath > b.blueprintPath;
         if (a.triggerRoute != b.triggerRoute) return a.triggerRoute > b.triggerRoute;
         return a.score > b.score;
     });
@@ -174,6 +191,7 @@ void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
     auto structureRank = candidates;
     std::sort(structureRank.begin(), structureRank.end(), [](const Node& a, const Node& b) {
         if (a.structure != b.structure) return a.structure > b.structure;
+        if (a.blueprintPath != b.blueprintPath) return a.blueprintPath > b.blueprintPath;
         if (a.triggerRoute != b.triggerRoute) return a.triggerRoute > b.triggerRoute;
         return a.score > b.score;
     });
@@ -233,6 +251,8 @@ void debugBeamSummary(const std::vector<Node>& beam, int depth, int beamWidth) {
             << " score=" << x.score
             << " maxChain=" << x.maxChain
             << " route=" << x.triggerRoute
+            << " blueprintPath=" << x.blueprintPath
+            << " blueprintScore=" << x.blueprintScore
             << " longPotential=" << x.longPotential
             << " structure=" << x.structure
             << " gameOver=" << (x.gameOver ? 1 : 0) << '\n';
@@ -245,6 +265,8 @@ double finalUtility(const Node& n) {
     // lexicographic gate. A quiet 5-chain construction with much higher latent
     // potential can now beat a prematurely-cashed 7-chain.
     return n.score + static_cast<double>(n.maxChain) * 70000.0
+         + n.blueprintPath * 50000.0
+         + n.blueprintScore * 2.0
          + n.longPotential * 5000.0;
 }
 
@@ -324,11 +346,21 @@ Move chooseRoot(
         if (allDead) break;
     }
 
-    // Expensive tail analysis is performed only for the final beam.  This
-    // compares the pre-trigger board with the real simulator's post-trigger
-    // chain and rewards latent 3+1 / 2+2 tail material without making every
-    // beam child pay for a full chain simulation.
+    // Full blueprint analysis is intentionally deferred until the final beam.
+    // This is where we can afford the recursive A->B->A style dependency
+    // analysis without multiplying its cost by every generated child.
     for (auto& node : beam) {
+        // All three visible pairs have already been consumed by a terminal
+        // depth-3 branch, so do not reuse them as if they were future pieces.
+        // This keeps the blueprint strictly within the human-information
+        // constraint.
+        const ChainBlueprint blueprint = analyzeChainBlueprint(node.board, {});
+        node.blueprintPath = std::max(node.blueprintPath, blueprint.longestPath);
+        node.blueprintScore = blueprint.score;
+
+        // Expensive tail analysis is also restricted to the final beam.
+        // This compares the pre-trigger board with the real simulator's
+        // post-trigger chain and rewards latent tail material.
         if (node.maxChain == 0) {
             node.structure += postTriggerTailScore(node.board) * 0.08;
             node.structure -= prematureTriggerRisk(node.board) * 0.05;
@@ -354,6 +386,8 @@ Move chooseRoot(
             << " score=" << best->score
             << " maxChain=" << best->maxChain
             << " route=" << best->triggerRoute
+            << " blueprintPath=" << best->blueprintPath
+            << " blueprintScore=" << best->blueprintScore
             << " longPotential=" << best->longPotential
             << " structure=" << best->structure
             << " gameOver=" << (best->gameOver ? 1 : 0) << "\n"
