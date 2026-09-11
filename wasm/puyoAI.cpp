@@ -105,3 +105,19 @@ const char* get_ai_pattern_name() {
 }
 
 }
+
+#include "../ai/evaluation/debug_log.h"
+
+extern "C" {
+
+void set_ai_debug_logging(int enabled) {
+    puyo::setDebugLogging(enabled != 0);
+}
+
+const char* get_ai_debug_log() {
+    static std::string buffer;
+    buffer = puyo::takeDebugLog();
+    return buffer.c_str();
+}
+
+}
