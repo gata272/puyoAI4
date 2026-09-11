@@ -6,30 +6,32 @@
 
 namespace puyo {
 
-// Structural analysis for human-style large-chain construction.
-// A route is a sequence of latent 3-groups: removing the current group and
-// applying gravity causes another colour to become a 4+ group.  This models
-// the user's "A -> B -> C" trigger-transfer idea without looking at hidden
-// future pieces.
+// Large-chain construction is treated as a dependency PATH, not as a graph
+// whose branches are rewarded.  A path step means: removing the previous
+// trigger causes a new group to become removable on a later chain wave.
+// The same colour may appear more than once (A -> B -> A -> C); nodes are
+// chain events, not colours.
 int triggerRouteLength(const Board& board);
-
 double triggerRelayScore(const Board& board);
 double triggerAnchorValue(const Board& board);
 double triggerQueueScore(const Board& board, const std::vector<PuyoPair>& pieces);
 double triggerRouteScore(const Board& board);
 
-// Additional structural terms used by the large-chain evaluator.
-//
-// preparedGroupScore: values 3+1 / 2+2 style groups that are not currently
-// firing but can become 4+ after a trigger elsewhere fires.
-// postTriggerTailScore: compares the board before a trigger with the board
-// after one or more real chain waves and rewards cells/groups that only become
-// removable after the trigger.
-// prematureTriggerRisk: penalizes placements that turn a valuable latent
-// anchor into an immediately firing 4+ group before the intended route is
-// constructed.
+// Scores for the construction policy described in the project notes.
+// preparedGroupScore rewards useful latent 3 / pair structures while avoiding
+// immediate 4+ firing. postTriggerTailScore rewards material that becomes
+// removable only after the hypothetical trigger and its subsequent gravity.
+// prematureTriggerRisk penalizes destroying a valuable latent construction.
 double preparedGroupScore(const Board& board);
 double postTriggerTailScore(const Board& board);
 double prematureTriggerRisk(const Board& board);
+
+// More explicit metrics for diagnostics and tuning.
+// chainDependencyPathScore is intentionally based on the longest *sequential*
+// chain path. Multiple groups disappearing on the same wave do not increase
+// the path length. branchPenalty is a small penalty for wasting material on
+// same-wave parallel removals instead of extending the next wave.
+double chainDependencyPathScore(const Board& board);
+double chainDependencyBranchPenalty(const Board& board);
 
 } // namespace puyo
