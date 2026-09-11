@@ -49,6 +49,7 @@ jobs:
             ai/evaluation/trigger_route.cpp \
             ai/evaluation/long_chain_potential.cpp \
             ai/evaluation/forms.cpp \
+            ai/evaluation/debug_log.cpp \
             -I. \
             -o native_test
 
@@ -119,8 +120,8 @@ jobs:
             --exclude='build/' \
             --exclude='_site/' \
             --exclude='native_test' \
-            --exclude='long_chain_potential_test' \
             --exclude='trigger_structure_test' \
+            --exclude='long_chain_potential_test' \
             ./ _site/
 
           cp puyoAI_wasm.mjs _site/puyoAI_wasm.mjs
