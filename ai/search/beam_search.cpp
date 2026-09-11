@@ -25,6 +25,7 @@ struct Node {
     int maxChain = 0;
     int triggerRoute = 0;
     double longPotential = 0.0;
+    double structure = 0.0;
     bool gameOver = false;
 };
 
@@ -89,6 +90,16 @@ std::vector<Node> expandNode(
         candidate.maxChain = std::max(parent.maxChain, sim.chains);
         candidate.triggerRoute = std::max(parent.triggerRoute, triggerRouteLength(sim.board));
         candidate.longPotential = longChainPotential(sim.board, ctx.lookahead);
+        // Structural guidance is deliberately strongest while the branch is
+        // quiet.  Once a real chain has fired, the normal chain objective and
+        // simulator state take priority.
+        if (sim.chains == 0) {
+            // Prepared-group analysis is cheap enough to use during beam
+            // expansion.  Full post-trigger tail simulation is deliberately
+            // deferred until the final beam so it cannot multiply the search
+            // cost at every child.
+            candidate.structure += preparedGroupScore(sim.board) * 0.10;
+        }
         candidate.gameOver = deathMove;
 
         if (deathMove) death.push_back(std::move(candidate));
@@ -157,6 +168,19 @@ void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
         addIfNew(potentialRank[static_cast<std::size_t>(i)]);
     }
 
+    auto structureRank = candidates;
+    std::sort(structureRank.begin(), structureRank.end(), [](const Node& a, const Node& b) {
+        if (a.structure != b.structure) return a.structure > b.structure;
+        if (a.triggerRoute != b.triggerRoute) return a.triggerRoute > b.triggerRoute;
+        return a.score > b.score;
+    });
+    const int structureSlots = std::max(1, beamWidth / 6);
+    for (int i = 0; i < structureSlots && i < static_cast<int>(structureRank.size()); ++i) {
+        if (structureRank[static_cast<std::size_t>(i)].structure > 0.0) {
+            addIfNew(structureRank[static_cast<std::size_t>(i)]);
+        }
+    }
+
     for (const auto& node : candidates) {
         if (static_cast<int>(selected.size()) >= beamWidth) break;
         addIfNew(node);
@@ -176,7 +200,16 @@ double finalUtility(const Node& n) {
 bool betterFinal(const Node& a, const Node& b) {
     const double ua = finalUtility(a);
     const double ub = finalUtility(b);
-    if (ua != ub) return ua > ub;
+    if (ua != ub) {
+        // Structure is a tie-breaker, not a replacement for the real chain
+        // objective.  This keeps the proven search behavior while preferring
+        // the user's trigger-transfer / chain-tail construction when two
+        // choices are otherwise close.
+        if (std::abs(ua - ub) <= 10000.0 && a.structure != b.structure)
+            return a.structure > b.structure;
+        return ua > ub;
+    }
+    if (a.structure != b.structure) return a.structure > b.structure;
     return a.maxChain > b.maxChain;
 }
 
@@ -237,6 +270,17 @@ Move chooseRoot(
             }
         }
         if (allDead) break;
+    }
+
+    // Expensive tail analysis is performed only for the final beam.  This
+    // compares the pre-trigger board with the real simulator's post-trigger
+    // chain and rewards latent 3+1 / 2+2 tail material without making every
+    // beam child pay for a full chain simulation.
+    for (auto& node : beam) {
+        if (node.maxChain == 0) {
+            node.structure += postTriggerTailScore(node.board) * 0.08;
+            node.structure -= prematureTriggerRisk(node.board) * 0.05;
+        }
     }
 
     const auto best = std::max_element(
