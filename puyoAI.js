@@ -212,11 +212,17 @@
         );
 
         const searchSettings = getSearchSettings();
+        let debug = false;
+        try {
+            debug = localStorage.getItem('puyoAI.debugMode') === 'true';
+        } catch (_) {}
+
         STATE.worker.postMessage({
             type: 'think',
             turn: STATE.turn,
             depth: searchSettings.depth,
             beamWidth: searchSettings.beamWidth,
+            debug,
             boardBuffer: makeBoardBuffer(),
             pieceBuffer: makePieceBuffer(pieces)
         });

@@ -6,6 +6,8 @@ let chooseMove = null;
 let resetAI = null;
 let setBoardCell = null;
 let getPatternName = null;
+let setDebugLogging = null;
+let getDebugLog = null;
 
 function postLog(message) {
     self.postMessage({ type: 'log', message });
@@ -54,6 +56,18 @@ async function init() {
             []
         );
 
+        setDebugLogging = moduleInstance.cwrap(
+            'set_ai_debug_logging',
+            null,
+            ['number']
+        );
+
+        getDebugLog = moduleInstance.cwrap(
+            'get_ai_debug_log',
+            'string',
+            []
+        );
+
         self.postMessage({ type: 'ready' });
     } catch (error) {
         self.postMessage({
@@ -78,6 +92,8 @@ self.onmessage = async (event) => {
     if (msg.type !== 'think') return;
 
     try {
+        if (setDebugLogging) setDebugLogging(msg.debug ? 1 : 0);
+
         const board = new Uint8Array(msg.boardBuffer || []);
         const pieces = new Uint8Array(msg.pieceBuffer || []);
 
@@ -114,6 +130,11 @@ self.onmessage = async (event) => {
         const patternName = getPatternName
             ? getPatternName()
             : '';
+
+        if (msg.debug && getDebugLog) {
+            const debug = getDebugLog();
+            if (debug) self.postMessage({ type: 'log', message: debug });
+        }
 
         self.postMessage({
             type: 'move',
