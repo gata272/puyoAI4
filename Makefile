@@ -10,6 +10,8 @@ AI_SOURCES := \
 	ai/evaluation/evaluation.cpp \
 	ai/evaluation/trigger_route.cpp \
 	ai/evaluation/long_chain_potential.cpp \
+	ai/evaluation/chain_blueprint.cpp \
+	ai/evaluation/debug_log.cpp \
 	ai/evaluation/forms.cpp \
 	ai/search/move_generator.cpp \
 	ai/search/beam_search.cpp \
@@ -18,13 +20,19 @@ AI_SOURCES := \
 
 BENCHMARK_SOURCES := $(AI_SOURCES) ai/benchmark/chain_benchmark.cpp
 
-.PHONY: test benchmark clean
+.PHONY: test blueprint-test benchmark clean
 
 test:
 	$(CXX) $(CXXFLAGS) $(INCLUDES) \
 		tests/test_native.cpp $(AI_SOURCES) \
 		-o /tmp/puyoai_test
 	/tmp/puyoai_test
+
+blueprint-test:
+	$(CXX) $(CXXFLAGS) $(INCLUDES) \
+		tests/test_chain_blueprint.cpp ai/evaluation/chain_blueprint.cpp ai/simulation/board.cpp \
+		-o /tmp/puyoai_blueprint_test
+	/tmp/puyoai_blueprint_test
 
 benchmark:
 	$(CXX) $(CXXFLAGS) $(INCLUDES) \
@@ -33,4 +41,4 @@ benchmark:
 	/tmp/puyoai_benchmark 4 60 20260908 2 4
 
 clean:
-	rm -f /tmp/puyoai_test /tmp/puyoai_benchmark
+	rm -f /tmp/puyoai_test /tmp/puyoai_blueprint_test /tmp/puyoai_benchmark
