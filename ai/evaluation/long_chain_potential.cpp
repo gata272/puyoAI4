@@ -90,8 +90,8 @@ double shapePotential(const std::array<int,BOARD_WIDTH>& h) {
     const int maxH = *std::max_element(h.begin(), h.end());
 
     if (maxH <= 8) score += 2.0;
-    else if (maxH <= 11) score += 1.0;
-    else if (maxH >= 13) score -= 8.0;
+    else if (maxH <= 10) score += 1.0;
+    else if (maxH >= 12) score -= 8.0;
 
     const double leftSlope = static_cast<double>(h[1] - h[0]);
     const double midSlope = static_cast<double>(h[2] - h[1]);

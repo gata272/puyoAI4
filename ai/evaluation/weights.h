@@ -28,4 +28,10 @@ struct Weights {
 
 Weights amaBuildWeights();
 
+/// Stable names used by the browser developer-mode tuner.
+const char* weightName(int index);
+double getWeight(const Weights& weights, int index);
+bool setWeight(Weights& weights, int index, double value);
+int weightCount();
+
 } // namespace puyo
