@@ -20,7 +20,15 @@ Move AI::chooseMove(
     const Board& board,
     const std::vector<PuyoPair>& pieces
 ) {
-    return chooseMove(turn, board, pieces, 3, 24);
+    // Wider beam than the original default (12) so a quiet, high-potential
+    // construction is less likely to be pruned away before its payoff (a
+    // larger later chain) becomes visible to the search. 20 was chosen as a
+    // balance between search quality and per-move think time in the browser
+    // (WASM); see docs/RESEARCH_NEXT.md ("PuyoAI12") for the benchmark data
+    // behind this change, and config/search.json for the wider beamWidth
+    // (32) recommended for offline chain_benchmark_cli runs where think
+    // time does not need to stay real-time.
+    return chooseMove(turn, board, pieces, 3, 20);
 }
 
 Move AI::chooseMove(
