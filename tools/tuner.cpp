@@ -53,20 +53,10 @@ double evaluateWeights(const Vec& x, int seed, int games, int turns) {
         const Features finalF = extractStaticFeatures(board);
         // The terminal board terms keep SPSA informative even on short
         // samples where no full chain happens to occur.
-        //
-        // Long-chain-focused objective: a plain linear reward on maxChain
-        // tunes toward weights that are reliably "pretty good" (8-10 chain)
-        // rather than weights that occasionally reach a much larger chain.
-        // Squaring the chain term and adding explicit milestone bonuses
-        // biases the search toward parameter sets that produce large
-        // chains at all, even if that makes the average slightly less
-        // stable, which is the actual objective when the goal is 15+.
-        objective += 10000.0*maxChain*maxChain/12.0 + 1000.0*chains + 250.0*survived
+        objective += 10000.0*maxChain + 1000.0*chains + 250.0*survived
                    - 35.0*heightPenalty
                    + 40.0*finalF.link2 + 70.0*finalF.link3
-                   - 100.0*finalF.nuisance
-                   + (maxChain >= 12 ? 60000.0 : 0.0)
-                   + (maxChain >= 15 ? 150000.0 : 0.0);
+                   - 100.0*finalF.nuisance;
     }
     return objective/games;
 }
@@ -86,10 +76,7 @@ void writeJson(const Vec& x,const std::string& path){
 }
 
 int main(int argc,char**argv){
-    // Defaults raised from (6, 35) so a run has a realistic chance of seeing
-    // a 12-15 chain construction actually complete; 15+ chains typically
-    // need well over 35 placements to assemble.
-    int iterations=20,games=8,turns=65,seed=20260908;
+    int iterations=20,games=6,turns=35,seed=20260908;
     std::string out="config/weights_tuned_experimental.json";
     if(argc>1) iterations=std::max(1,std::atoi(argv[1]));
     if(argc>2) games=std::max(1,std::atoi(argv[2]));
