@@ -20,15 +20,7 @@ Move AI::chooseMove(
     const Board& board,
     const std::vector<PuyoPair>& pieces
 ) {
-    // Wider beam than the original default (12) so a quiet, high-potential
-    // construction is less likely to be pruned away before its payoff (a
-    // larger later chain) becomes visible to the search. 20 was chosen as a
-    // balance between search quality and per-move think time in the browser
-    // (WASM); see docs/RESEARCH_NEXT.md ("PuyoAI12") for the benchmark data
-    // behind this change, and config/search.json for the wider beamWidth
-    // (32) recommended for offline chain_benchmark_cli runs where think
-    // time does not need to stay real-time.
-    return chooseMove(turn, board, pieces, 3, 20);
+    return chooseMove(turn, board, pieces, 3, 12);
 }
 
 Move AI::chooseMove(
@@ -83,6 +75,26 @@ Move AI::chooseMove(
         std::max(1, depth),
         std::max(1, beamWidth)
     );
+}
+
+void AI::resetWeights() {
+    weights_ = amaBuildWeights();
+}
+
+bool AI::setWeight(int index, double value) {
+    return puyo::setWeight(weights_, index, value);
+}
+
+double AI::getWeight(int index) const {
+    return puyo::getWeight(weights_, index);
+}
+
+int AI::weightCount() const {
+    return puyo::weightCount();
+}
+
+const char* AI::weightName(int index) const {
+    return puyo::weightName(index);
 }
 
 const char* AI::patternName() const {
