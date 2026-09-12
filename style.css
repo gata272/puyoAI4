@@ -572,3 +572,43 @@ body.board-gameover #puyo-board .puyo::after {
 @media (max-width: 650px) {
     .benchmark-form { grid-template-columns: 1fr; }
 }
+
+/* --- Developer / advanced evaluation tuning UI --- */
+#developer-panel[hidden] { display: none !important; }
+#developer-panel {
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 6px;
+    background: rgba(0,0,0,0.18);
+    text-align: left;
+}
+.developer-weights {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px 9px;
+    max-height: 420px;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+.developer-weight-row { display: flex; flex-direction: column; gap: 3px; }
+.developer-weight-row label { font-size: 0.72em; color: #bbb; }
+.developer-weight-row input {
+    width: 100%; box-sizing: border-box;
+    padding: 6px 7px;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 5px;
+    background: rgba(255,255,255,0.06);
+    color: #fff;
+}
+.developer-actions { display: flex; gap: 7px; margin-top: 10px; }
+.developer-actions button {
+    flex: 1; padding: 8px; border: 0; border-radius: 5px;
+    color: #fff; font-weight: bold; cursor: pointer;
+}
+#apply-developer-weights-button { background: #2a9d8f; }
+#reset-developer-weights-button { background: #e63946; }
+.developer-status { min-height: 1.2em; margin-top: 7px; color: #aaa; font-size: 0.7em; }
+@media (max-width: 380px) {
+    .developer-weights { grid-template-columns: 1fr; }
+}

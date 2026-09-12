@@ -32,8 +32,8 @@
         try {
             const saved = JSON.parse(localStorage.getItem(CONFIG.STORAGE_KEY) || 'null');
             return {
-                depth: Number.isFinite(saved?.depth) ? Math.max(1, Math.min(3, Math.trunc(saved.depth))) : fallback.depth,
-                beamWidth: Number.isFinite(saved?.beamWidth) ? Math.max(1, Math.min(128, Math.trunc(saved.beamWidth))) : fallback.beamWidth
+                depth: Number.isFinite(saved?.depth) ? Math.max(1, Math.min(50, Math.trunc(saved.depth))) : fallback.depth,
+                beamWidth: Number.isFinite(saved?.beamWidth) ? Math.max(1, Math.min(500, Math.trunc(saved.beamWidth))) : fallback.beamWidth
             };
         } catch (_) {
             return fallback;
@@ -114,6 +114,24 @@
         return result.buffer;
     }
 
+    function readStoredAIWeights() {
+        try {
+            const saved = JSON.parse(localStorage.getItem('puyoAI.developerWeights') || 'null');
+            return Array.isArray(saved)
+                ? saved.map(v => Number.isFinite(Number(v)) ? Number(v) : null)
+                : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function applyStoredAIWeights() {
+        const values = readStoredAIWeights();
+        if (values && STATE.worker && STATE.workerReady) {
+            STATE.worker.postMessage({ type: 'weights', values });
+        }
+    }
+
     function initWorker() {
         if (STATE.worker) return;
 
@@ -128,11 +146,19 @@
             if (msg.type === 'ready') {
                 STATE.workerReady = true;
                 status('WASM AI 準備完了');
+                applyStoredAIWeights();
+                if (typeof global.requestAIWeights === 'function') global.requestAIWeights();
                 return;
             }
 
             if (msg.type === 'log') {
                 console.log('[AI]', msg.message);
+                return;
+            }
+            if (msg.type === 'weights') {
+                if (typeof global.renderDeveloperWeights === 'function') {
+                    global.renderDeveloperWeights(msg.weights || []);
+                }
                 return;
             }
 
@@ -253,8 +279,8 @@
             return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
         };
         const settings = {
-            depth: read('ai-depth', CONFIG.DEFAULT_DEPTH, 1, 3),
-            beamWidth: read('ai-beam', CONFIG.DEFAULT_BEAM_WIDTH, 1, 128)
+            depth: read('ai-depth', CONFIG.DEFAULT_DEPTH, 1, 50),
+            beamWidth: read('ai-beam', CONFIG.DEFAULT_BEAM_WIDTH, 1, 500)
         };
         try {
             localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(settings));
@@ -264,6 +290,28 @@
         if (depth) depth.value = settings.depth;
         if (beam) beam.value = settings.beamWidth;
         status(`AI設定: depth ${settings.depth} / beam ${settings.beamWidth}`);
+    };
+
+    global.requestAIWeights = function () {
+        if (!STATE.worker) initWorker();
+        if (!STATE.worker || !STATE.workerReady) return;
+        STATE.worker.postMessage({ type: 'weights', values: readStoredAIWeights() || [] });
+    };
+
+    global.applyAIWeights = function (values) {
+        if (!STATE.worker) initWorker();
+        if (!STATE.worker || !STATE.workerReady) return;
+        STATE.worker.postMessage({
+            type: 'weights',
+            values: Array.isArray(values) ? values : []
+        });
+    };
+
+    global.resetAIWeights = function () {
+        try { localStorage.removeItem('puyoAI.developerWeights'); } catch (_) {}
+        if (!STATE.worker) initWorker();
+        if (!STATE.worker || !STATE.workerReady) return;
+        STATE.worker.postMessage({ type: 'weights', reset: true, values: [] });
     };
 
     global.toggleAI = function () {

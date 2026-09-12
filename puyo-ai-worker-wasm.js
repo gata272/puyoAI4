@@ -8,6 +8,11 @@ let setBoardCell = null;
 let getPatternName = null;
 let setDebugLogging = null;
 let getDebugLog = null;
+let resetAIWeights = null;
+let getAIWeightCount = null;
+let getAIWeightName = null;
+let getAIWeight = null;
+let setAIWeight = null;
 
 function postLog(message) {
     self.postMessage({ type: 'log', message });
@@ -68,6 +73,12 @@ async function init() {
             []
         );
 
+        resetAIWeights = moduleInstance.cwrap('reset_ai_weights', null, []);
+        getAIWeightCount = moduleInstance.cwrap('get_ai_weight_count', 'number', []);
+        getAIWeightName = moduleInstance.cwrap('get_ai_weight_name', 'string', ['number']);
+        getAIWeight = moduleInstance.cwrap('get_ai_weight', 'number', ['number']);
+        setAIWeight = moduleInstance.cwrap('set_ai_weight', 'number', ['number', 'number']);
+
         self.postMessage({ type: 'ready' });
     } catch (error) {
         self.postMessage({
@@ -86,6 +97,31 @@ self.onmessage = async (event) => {
 
     if (msg.type === 'reset') {
         if (resetAI) resetAI();
+        return;
+    }
+
+    if (msg.type === 'weights') {
+        try {
+            if (msg.reset && resetAIWeights) resetAIWeights();
+            const values = Array.isArray(msg.values) ? msg.values : [];
+            if (setAIWeight) {
+                for (let i = 0; i < values.length; ++i) {
+                    if (Number.isFinite(values[i])) setAIWeight(i, Number(values[i]));
+                }
+            }
+            const count = getAIWeightCount ? getAIWeightCount() : 0;
+            const result = [];
+            for (let i = 0; i < count; ++i) {
+                result.push({
+                    index: i,
+                    name: getAIWeightName ? getAIWeightName(i) : `weight${i}`,
+                    value: getAIWeight ? getAIWeight(i) : 0
+                });
+            }
+            self.postMessage({ type: 'weights', weights: result });
+        } catch (error) {
+            self.postMessage({ type: 'error', message: `重み設定エラー: ${error && error.message ? error.message : error}` });
+        }
         return;
     }
 

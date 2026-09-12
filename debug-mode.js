@@ -3,6 +3,8 @@
     'use strict';
 
     const STORAGE_KEY = 'puyoAI.debugMode';
+    const DEVELOPER_STORAGE_KEY = 'puyoAI.developerMode';
+    const WEIGHTS_STORAGE_KEY = 'puyoAI.developerWeights';
     const DEFAULTS = {
         games: 5,
         turns: 60,
@@ -15,7 +17,9 @@
         debugMode: false,
         worker: null,
         ready: false,
-        running: false
+        running: false,
+        developerMode: false,
+        weights: []
     };
 
     function $(id) { return document.getElementById(id); }
@@ -59,8 +63,8 @@
             games: read('benchmark-games', DEFAULTS.games, 1, 5000),
             turns: read('benchmark-turns', DEFAULTS.turns, 1, 500),
             seed: read('benchmark-seed', DEFAULTS.seed, -2147483648, 2147483647),
-            depth: read('benchmark-depth', DEFAULTS.depth, 1, 10),
-            beamWidth: read('benchmark-beam', DEFAULTS.beamWidth, 1, 128)
+            depth: read('benchmark-depth', DEFAULTS.depth, 1, 50),
+            beamWidth: read('benchmark-beam', DEFAULTS.beamWidth, 1, 500)
         };
     }
 
@@ -133,6 +137,96 @@
         };
     }
 
+    function setDeveloperMode(enabled) {
+        STATE.developerMode = !!enabled;
+        try { localStorage.setItem(DEVELOPER_STORAGE_KEY, STATE.developerMode ? 'true' : 'false'); } catch (_) {}
+        const checkbox = $('developer-mode-checkbox');
+        if (checkbox) checkbox.checked = STATE.developerMode;
+        const panel = $('developer-panel');
+        if (panel) panel.hidden = !STATE.developerMode;
+        const badge = $('developer-mode-badge');
+        if (badge) badge.hidden = !STATE.developerMode;
+        if (STATE.developerMode) requestWeights();
+    }
+
+    function renderWeights(weights) {
+        STATE.weights = weights || [];
+        const container = $('developer-weights');
+        if (!container) return;
+        container.innerHTML = '';
+        for (const item of STATE.weights) {
+            const row = document.createElement('div');
+            row.className = 'developer-weight-row';
+            const label = document.createElement('label');
+            label.textContent = item.name;
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.step = 'any';
+            input.dataset.weightIndex = String(item.index);
+            input.value = Number(item.value).toString();
+            row.append(label, input);
+            container.appendChild(row);
+        }
+        const status = $('developer-status');
+        if (status) status.textContent = `${STATE.weights.length}個の重みを読み込みました`;
+    }
+
+    global.renderDeveloperWeights = renderWeights;
+
+    function requestWeights() {
+        if (typeof global.requestAIWeights === 'function') {
+            global.requestAIWeights();
+        } else {
+            const status = $('developer-status');
+            if (status) status.textContent = '通常AIワーカーを初期化中…';
+            if (typeof global.toggleAI === 'function') {
+                // toggleAI is not forced here; the normal worker is initialized
+                // only when AI is actually enabled.
+            }
+        }
+    }
+
+    global.toggleDeveloperMode = function () {
+        const checkbox = $('developer-mode-checkbox');
+        if (!STATE.debugMode) {
+            if (checkbox) checkbox.checked = false;
+            setDeveloperMode(false);
+            return;
+        }
+        setDeveloperMode(!!checkbox?.checked);
+    };
+
+    global.applyDeveloperWeights = function () {
+        const inputs = document.querySelectorAll('#developer-weights input[data-weight-index]');
+        const values = [];
+        for (const input of inputs) {
+            const index = Number.parseInt(input.dataset.weightIndex, 10);
+            const value = Number(input.value);
+            if (!Number.isFinite(index) || !Number.isFinite(value)) {
+                const status = $('developer-status');
+                if (status) status.textContent = '数値が不正な項目があります';
+                return;
+            }
+            values[index] = value;
+        }
+        try { localStorage.setItem(WEIGHTS_STORAGE_KEY, JSON.stringify(values)); } catch (_) {}
+        if (typeof global.applyAIWeights === 'function') {
+            global.applyAIWeights(values);
+        }
+        const status = $('developer-status');
+        if (status) status.textContent = '重みを適用・保存しました';
+    };
+
+    global.resetDeveloperWeights = function () {
+        try { localStorage.removeItem(WEIGHTS_STORAGE_KEY); } catch (_) {}
+        if (typeof global.resetAIWeights === 'function') {
+            global.resetAIWeights();
+        }
+        requestWeights();
+        const status = $('developer-status');
+        if (status) status.textContent = 'ama基準値に戻しました';
+    };
+
     global.toggleDebugMode = function () {
         const checkbox = $('debug-mode-checkbox');
         setDebugMode(!!checkbox?.checked);
@@ -160,6 +254,7 @@
 
     global.initializeDebugMode = function () {
         setDebugMode(readBool());
+        try { setDeveloperMode(localStorage.getItem(DEVELOPER_STORAGE_KEY) === 'true'); } catch (_) { setDeveloperMode(false); }
         const checkbox = $('debug-mode-checkbox');
         if (checkbox) checkbox.checked = STATE.debugMode;
         for (const [id, value] of Object.entries({

@@ -48,8 +48,8 @@
             <div class="ai-search-settings" style="margin: 20px 0; text-align: left; border-top: 1px solid #444; padding-top: 15px;">
                 <h3 style="font-size: 1em; margin: 0 0 10px 0;">通常AI設定</h3>
                 <div class="benchmark-form">
-                    <label>探索深さ<input id="ai-depth" type="number" min="1" max="3" value="3"></label>
-                    <label>Beam幅<input id="ai-beam" type="number" min="1" max="128" value="24"></label>
+                    <label>探索深さ<input id="ai-depth" type="number" min="1" max="50" value="3"></label>
+                    <label>Beam幅<input id="ai-beam" type="number" min="1" max="500" value="24"></label>
                 </div>
                 <p style="font-size: 0.72em; color: #999; line-height: 1.45; margin: 8px 0 0;">深さ・Beam幅を大きくすると探索量が増え、AIの思考時間も長くなります。</p>
             </div>
@@ -58,6 +58,25 @@
                 <input type="checkbox" id="debug-mode-checkbox" onchange="toggleDebugMode()">
                 <label for="debug-mode-checkbox">デバッグモード</label>
                 <span id="debug-mode-badge" class="debug-mode-badge" hidden>DEBUG</span>
+            </div>
+
+            <div id="developer-mode-row" class="debug-mode-row">
+                <input type="checkbox" id="developer-mode-checkbox" onchange="toggleDeveloperMode()">
+                <label for="developer-mode-checkbox">開発者モード（詳細デバッグ）</label>
+                <span id="developer-mode-badge" class="debug-mode-badge" hidden>DEV</span>
+            </div>
+
+            <div id="developer-panel" hidden>
+                <h3 style="font-size: 1em; margin: 8px 0;">評価関数 重み調整</h3>
+                <p style="font-size: 0.72em; color: #999; line-height: 1.45;">
+                    開発者モードでは通常AIの評価関数の重みを直接変更できます。変更はこの端末のブラウザに保存され、次回以降も使用されます。リセットでama基準値へ戻せます。
+                </p>
+                <div id="developer-weights" class="developer-weights"></div>
+                <div class="developer-actions">
+                    <button type="button" id="apply-developer-weights-button" onclick="applyDeveloperWeights()">重みを適用</button>
+                    <button type="button" id="reset-developer-weights-button" onclick="resetDeveloperWeights()">初期値に戻す</button>
+                </div>
+                <div id="developer-status" class="developer-status">開発者モード準備中…</div>
             </div>
 
             <div id="debug-panel" hidden>
@@ -70,8 +89,8 @@
                     <label>試行ゲーム数<input id="benchmark-games" type="number" min="1" max="5000" value="5"></label>
                     <label>1ゲームの最大ターン<input id="benchmark-turns" type="number" min="1" max="500" value="60"></label>
                     <label>Seed<input id="benchmark-seed" type="number" value="20260908"></label>
-                    <label>探索深さ<input id="benchmark-depth" type="number" min="1" max="8" value="2"></label>
-                    <label>Beam幅<input id="benchmark-beam" type="number" min="1" max="128" value="4"></label>
+                    <label>探索深さ<input id="benchmark-depth" type="number" min="1" max="50" value="2"></label>
+                    <label>Beam幅<input id="benchmark-beam" type="number" min="1" max="500" value="4"></label>
                 </div>
                 <button id="run-benchmark-button" onclick="runChainBenchmark()" disabled>最大連鎖ベンチマーク開始</button>
                 <div id="benchmark-status">準備中…</div>
