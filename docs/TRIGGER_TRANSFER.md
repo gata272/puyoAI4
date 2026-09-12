@@ -1,45 +1,47 @@
-# Persistent Trigger Transfer
+# Sequential Trigger Transfer
 
 ## Goal
 
-The AI does not attempt to see a long future directly. It sees only three pairs:
+The AI should construct a large chain using only the information available to a human: the current pair and the next two pairs.
 
-1. current pair
-2. next pair
-3. next-next pair
-
-The long-chain objective is converted into a repeated local construction problem.
+The construction is viewed as a sequence of dependencies rather than a fixed colour template.
 
 ## Marked trigger
 
-An exact three-puyo group is a trigger candidate. The AI estimates which trigger is most valuable by hypothetically removing that group and applying the real simulator's gravity and chain-resolution rules.
+An exact three-puyo group is a latent trigger/anchor. The AI asks what would happen if that group were removed and the remaining board were resolved using the real simulator.
 
-The trigger is then treated as an anchor. A move that destroys a strong anchor without producing a chain is penalized.
+## Sequential dependency
 
-## Trigger transfer
+If removing a trigger causes another group to become removable on a later chain wave, the two events form a dependency path.
 
-If an exact-3 B group exists such that removing B causes an A group to become a 4+-group after gravity, the board contains a dependency:
+Examples:
 
 `B -> A`
 
-This captures both the vertical and horizontal forms discussed during development. A sequence such as
+`C -> B -> A`
 
-`D -> C -> B -> A`
+`A -> B -> A -> C`
 
-is therefore represented as a four-level trigger route.
+The last example is important: the same colour may occur at multiple stages. Each occurrence is a different chain event, so the path is not limited to four colours.
 
-The important distinction is that the AI is not required to fire A immediately. It can preserve A while building B, then preserve B while building C, and so on.
+## 3+1 and related structures
 
-## Missing desired colors
+A structure such as three connected A puyos plus another A separated by a trigger is useful because removing the trigger can make A fireable. Horizontal and vertical variants are handled by the same simulator-based rule instead of separate geometry-specific cases.
 
-The visible queue is used only for compatibility. If the next predecessor color is absent, the trigger anchor remains valuable. The evaluator therefore permits a waiting move that preserves the anchor rather than forcing a bad placement merely to use the current pair.
+Exact-2 groups are weaker preparation material. They are useful when they can become part of the next dependency step without immediately firing.
 
-## Implementation notes
+## No branch objective
 
-- `trigger_route.cpp` contains the dependency detector and structural scoring.
-- `Simulator::resolveBoard()` reuses the exact production chain resolver for hypothetical trigger tests.
-- `EvaluationContext::lookahead` contains at most three visible pairs.
-- `BeamSearch` is capped at depth 3 in the production configuration.
-- The opening GTR planner remains unchanged.
+The AI does not reward branching merely because several groups disappear together. Multiple groups on the same wave consume material but do not add multiple chain counts.
 
-This is intentionally a research implementation. The dependency graph is a structural approximation of the eventual chain and should be evaluated against a larger fixed queue corpus before claiming superiority over the previous maximum-chain beam search.
+The main structural objective is therefore:
+
+**make one chain wave cause one useful next chain wave, and repeat this for as many stages as possible.**
+
+## Post-trigger tail
+
+The evaluator also examines the board after a hypothetical trigger. Puyos that are not removable before the trigger but become removable after the trigger and subsequent gravity are treated as useful chain-tail material.
+
+## Search
+
+The path signal is combined with the existing board evaluator, GTR construction, long-chain potential, premature-trigger protection, and three-pair beam search. The benchmark and debug systems remain unchanged.
