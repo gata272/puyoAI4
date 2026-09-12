@@ -10,7 +10,7 @@
     "well": -100,
     "bump": -100,
     "form": 50,
-    "chain_potential": 450,
+    "chain_potential": 1000,
     "link_2": 150,
     "link_3": 250,
     "waste_14": -50,
