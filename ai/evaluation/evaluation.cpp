@@ -153,6 +153,7 @@ double evaluate(
         f.waste14 * weights.waste14 +
         f.side * weights.side +
         f.nuisance * weights.nuisance +
+        triggerRelayScore(board) +
         triggerQueueScore(board, context.lookahead);
 
     // ama's beam evaluator always runs quiet search with a tactical drop
