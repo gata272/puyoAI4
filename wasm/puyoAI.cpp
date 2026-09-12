@@ -100,6 +100,26 @@ const char* run_chain_benchmark(
 }
 
 EMSCRIPTEN_KEEPALIVE
+void reset_ai_weights() {
+    g_ai.resetWeights();
+}
+
+int get_ai_weight_count() {
+    return g_ai.weightCount();
+}
+
+const char* get_ai_weight_name(int index) {
+    return g_ai.weightName(index);
+}
+
+double get_ai_weight(int index) {
+    return g_ai.getWeight(index);
+}
+
+int set_ai_weight(int index, double value) {
+    return g_ai.setWeight(index, value) ? 1 : 0;
+}
+
 const char* get_ai_pattern_name() {
     return g_ai.patternName();
 }
