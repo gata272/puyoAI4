@@ -16,6 +16,17 @@
     "side": -110,
     "nuisance": -191,
     "tear": -561,
-    "waste": 0
+    "waste": 0,
+    "chain_unit_4": 850,
+    "chain_unit_5": 1050,
+    "oversized_unit": -650,
+    "surface_roughness": -180,
+    "max_step": -650,
+    "dead_space": -900,
+    "build_space": 55,
+    "tail_space": 80,
+    "height_variance": -45,
+    "edge_wall": 35,
+    "long_chain_potential": 1200
   }
 }

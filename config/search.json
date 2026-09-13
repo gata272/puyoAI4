@@ -4,10 +4,11 @@
   "lookaheadPairs": 3,
   "quiescenceDrop": 3,
   "discount": 0.85,
-  "objective": "3-pair human-information constraint with sequential chain-dependency path construction, trigger transfer, post-trigger tail, and beam diversity",
+  "objective": "3-pair human-information constraint with sequential Main Chain construction, latent 4/5 chain units, surface regularity, future build space, trigger transfer, post-trigger tail, and beam diversity",
   "chainReward": "small chains are treated as premature firing; actual chain count remains important but no longer lexicographically dominates latent potential",
   "longChainPotential": "0-100 static score combining 2/3-groups, reachable extensions, S-shape construction, human forms, trigger route, queue compatibility, and height pressure",
   "notes": "AI preserves exact-3 triggers, evaluates latent extension potential, keeps a potential-elite beam subset, and uses only current+2 NEXT pairs. It does not inspect hidden future pieces.",
   "chainDependencyPath": "primary latent-chain signal; evaluates the longest sequential hypothetical trigger path and permits repeated colours such as A->B->A->C",
-  "branchPolicy": "parallel same-wave removals are not rewarded; a small penalty is applied because they consume material without increasing chain count"
+  "branchPolicy": "parallel same-wave removals are not rewarded; a small penalty is applied because they consume material without increasing chain count",
+  "constructionGeometry": "latent 4/5 chain-unit potential, 2+2 bridge preparation, surface roughness, maximum adjacent height step, dead-space avoidance, bounded future construction space, tail landing space, height variance, and soft edge-wall geometry"
 }
