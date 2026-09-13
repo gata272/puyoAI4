@@ -46,10 +46,17 @@ int main() {
     auto hf = extractStaticFeatures(hole);
     assert(hf.deadSpace >= 1.0);
 
+    // A central mountain should be penalized more than an edge-supported shape.
+    Board centerMountain;
+    const int mh[6] = {2,3,8,8,3,2};
+    putFlat(centerMountain, mh, Cell::Blue);
+    auto mf = extractStaticFeatures(centerMountain);
+    assert(mf.centralPeak > 0.0);
+
     // Weight API remains finite and exposes all new structural terms.
     Weights w = amaBuildWeights();
-    assert(weightCount() == 27);
-    for (int i = 15; i <= 24; ++i) {
+    assert(weightCount() == 31);
+    for (int i = 15; i <= 28; ++i) {
         assert(weightName(i)[0] != '\0');
         assert(std::isfinite(getWeight(w, i)));
     }
