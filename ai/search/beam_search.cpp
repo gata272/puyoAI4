@@ -32,6 +32,8 @@ struct Node {
     double structure = 0.0;
     MainChainPlan mainChain;
     double mainChainScore = 0.0;
+    double construction = 0.0;
+    double prematureRisk = 0.0;
     bool gameOver = false;
 };
 
@@ -101,7 +103,26 @@ std::vector<Node> expandNode(
             parent.mainChain, candidate.mainChain, sim.chains);
         candidate.mainChainScore += mainChainCleanupScore(
             parent.mainChain, candidate.mainChain, sim.chains);
+
+        // Physical construction policy: keep a single expandable spine,
+        // preserve workspace, and avoid drifting the active trigger to an
+        // edge unless the geometry is otherwise useful.  These terms are
+        // deliberately softer than a real chain reward.
+        candidate.construction = mainChainConstructionScore(
+            sim.board, candidate.mainChain);
+        candidate.prematureRisk = prematureMainChainTriggerRisk(
+            sim.board, candidate.mainChain);
+
         local += candidate.mainChainScore;
+
+        // Construction geometry is intentionally a final-stage discriminator.
+        // Injecting it into every accumulated score makes a shallow geometric
+        // advantage compound across depth and can drown out real chain gains.
+        // The final utility below uses it only after the chain/route signals.
+        // This preserves the proven search behavior while still preferring a
+        // spacious, central, non-cash-out construction when candidates are
+        // otherwise close.
+
         // Structural guidance is deliberately strongest while the branch is
         // quiet.  Once a real chain has fired, the normal chain objective and
         // simulator state take priority.
@@ -258,7 +279,9 @@ double finalUtility(const Node& n) {
     return n.score + static_cast<double>(n.maxChain) * 70000.0
          + n.longPotential * 5000.0
          + static_cast<double>(n.mainChain.length()) * 18000.0
-         + n.mainChainScore * 0.75;
+         + n.mainChainScore * 0.75
+         + n.construction * 0.08
+         - n.prematureRisk * 0.08;
 }
 
 bool betterFinal(const Node& a, const Node& b) {
@@ -371,6 +394,8 @@ Move chooseRoot(
             << " longPotential=" << best->longPotential
             << " structure=" << best->structure
             << " mainChain=" << best->mainChain.length()
+            << " construction=" << best->construction
+            << " prematureRisk=" << best->prematureRisk
             << " mainRoute=";
         for (std::size_t i = 0; i < best->mainChain.colors.size(); ++i) {
             if (i) oss << "->";
