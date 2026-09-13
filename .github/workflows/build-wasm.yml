@@ -49,6 +49,7 @@ jobs:
             ai/evaluation/trigger_route.cpp \
             ai/evaluation/long_chain_potential.cpp \
             ai/evaluation/chain_blueprint.cpp \
+            ai/evaluation/main_chain.cpp \
             ai/evaluation/forms.cpp \
             ai/evaluation/debug_log.cpp \
             -I. \
@@ -87,6 +88,25 @@ jobs:
 
           ./chain_blueprint_test
 
+      - name: Main chain regression test
+        run: |
+          g++ \
+            -std=c++20 \
+            -O2 \
+            tests/test_main_chain.cpp \
+            ai/evaluation/main_chain.cpp \
+            ai/evaluation/chain_blueprint.cpp \
+            ai/evaluation/trigger_route.cpp \
+            ai/evaluation/long_chain_potential.cpp \
+            ai/evaluation/features.cpp \
+            ai/evaluation/forms.cpp \
+            ai/simulation/board.cpp \
+            ai/simulation/simulator.cpp \
+            -I. \
+            -o main_chain_test
+
+          ./main_chain_test
+
       - name: Build WASM
         run: |
           em++ \
@@ -104,6 +124,7 @@ jobs:
             ai/evaluation/trigger_route.cpp \
             ai/evaluation/long_chain_potential.cpp \
             ai/evaluation/chain_blueprint.cpp \
+            ai/evaluation/main_chain.cpp \
             ai/evaluation/forms.cpp \
             ai/evaluation/debug_log.cpp \
             -std=c++20 \
@@ -153,6 +174,7 @@ jobs:
             --exclude='native_test' \
             --exclude='trigger_structure_test' \
             --exclude='chain_blueprint_test' \
+            --exclude='main_chain_test' \
             --exclude='long_chain_potential_test' \
             ./ _site/
 
