@@ -10,6 +10,7 @@ AI_SOURCES := \
 	ai/evaluation/evaluation.cpp \
 	ai/evaluation/trigger_route.cpp \
 	ai/evaluation/long_chain_potential.cpp \
+	ai/evaluation/main_chain.cpp \
 	ai/evaluation/forms.cpp \
 	ai/evaluation/debug_log.cpp \
 	ai/search/move_generator.cpp \
