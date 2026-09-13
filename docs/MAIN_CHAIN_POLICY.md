@@ -40,3 +40,53 @@ purpose is to preserve and extend one long-chain blueprint.
 
 The policy is deliberately heuristic rather than a hard lock. If the plan
 becomes impossible, the beam can abandon it and establish a new route.
+
+
+## 2026-09 construction policy update
+
+The main-chain policy is intentionally a **soft construction layer**, not a second
+search objective that can overwhelm actual chain results.
+
+### 1. Delay the cash-out
+
+An exact-three group is treated as a prepared trigger. The AI does not equate
+"can be triggered" with "should be triggered". The route is preferred when it
+can continue to another sequential wave, while unrelated prepared triples are
+only a weak risk.
+
+### 2. One physical chain spine
+
+`MainChainPlan` remains a single sequential route. Repeated colours are legal,
+so routes such as `A -> B -> A -> C` are preserved. Same-wave independent groups
+are penalized rather than rewarded as a substitute for depth.
+
+### 3. Workspace and geometry
+
+The construction score considers:
+
+- route length;
+- exact-3 and exact-2 prepared groups;
+- remaining visible workspace;
+- the route anchor's distance from the center;
+- available vertical space around the anchor;
+- a **soft** edge-wall quality term.
+
+Edge height is therefore not rewarded by itself. A high edge is useful only when
+it behaves like a wall while the central construction area remains open.
+
+### 4. Search integration
+
+Construction geometry is applied primarily at final ranking with a small
+coefficient. It is deliberately not accumulated as a full per-depth reward:
+otherwise a small geometric advantage compounds through Beam Search and can
+cause the AI to abandon a genuinely longer chain.
+
+The existing chain reward, route score, and Main Chain continuity remain the
+dominant signals.
+
+### 5. Safety
+
+The construction metrics are bounded and use the same `Board` dimensions as the
+simulator. They do not change placement legality. If every legal placement is
+a game-over placement, the existing fallback behavior remains responsible for
+choosing the least-bad placement.
