@@ -21,6 +21,16 @@ Weights amaBuildWeights() {
         -50,  // waste14
         0,    // side
         -250, // nuisance
+        850,  // chainUnit4
+        1050, // chainUnit5
+        -650, // oversizedUnit
+        -180, // surfaceRoughness
+        -650, // maxStep
+        -900, // deadSpace
+        55,   // buildSpace
+        80,   // tailSpace
+        -45,  // heightVariance
+        35,   // edgeWall
         -250, // tear
         -250  // waste
     };
@@ -32,7 +42,10 @@ namespace {
 constexpr const char* kWeightNames[] = {
     "chain", "y", "key", "chi", "shape", "well", "bump", "form",
     "chainPotential", "longChainPotential", "link2", "link3",
-    "waste14", "side", "nuisance", "tear", "waste"
+    "waste14", "side", "nuisance",
+    "chainUnit4", "chainUnit5", "oversizedUnit", "surfaceRoughness",
+    "maxStep", "deadSpace", "buildSpace", "tailSpace", "heightVariance", "edgeWall",
+    "tear", "waste"
 };
 constexpr int kWeightCount = static_cast<int>(sizeof(kWeightNames) / sizeof(kWeightNames[0]));
 }
@@ -46,7 +59,11 @@ double getWeight(const Weights& w, int i) {
         case 4: return w.shape; case 5: return w.well; case 6: return w.bump; case 7: return w.form;
         case 8: return w.chainPotential; case 9: return w.longChainPotential; case 10: return w.link2;
         case 11: return w.link3; case 12: return w.waste14; case 13: return w.side;
-        case 14: return w.nuisance; case 15: return w.tear; case 16: return w.waste;
+        case 14: return w.nuisance;
+        case 15: return w.chainUnit4; case 16: return w.chainUnit5; case 17: return w.oversizedUnit;
+        case 18: return w.surfaceRoughness; case 19: return w.maxStep; case 20: return w.deadSpace;
+        case 21: return w.buildSpace; case 22: return w.tailSpace; case 23: return w.heightVariance;
+        case 24: return w.edgeWall; case 25: return w.tear; case 26: return w.waste;
         default: return 0.0;
     }
 }
@@ -57,7 +74,11 @@ bool setWeight(Weights& w, int i, double v) {
         case 4: w.shape=v; break; case 5: w.well=v; break; case 6: w.bump=v; break; case 7: w.form=v; break;
         case 8: w.chainPotential=v; break; case 9: w.longChainPotential=v; break; case 10: w.link2=v; break;
         case 11: w.link3=v; break; case 12: w.waste14=v; break; case 13: w.side=v; break;
-        case 14: w.nuisance=v; break; case 15: w.tear=v; break; case 16: w.waste=v; break;
+        case 14: w.nuisance=v; break;
+        case 15: w.chainUnit4=v; break; case 16: w.chainUnit5=v; break; case 17: w.oversizedUnit=v; break;
+        case 18: w.surfaceRoughness=v; break; case 19: w.maxStep=v; break; case 20: w.deadSpace=v; break;
+        case 21: w.buildSpace=v; break; case 22: w.tailSpace=v; break; case 23: w.heightVariance=v; break;
+        case 24: w.edgeWall=v; break; case 25: w.tear=v; break; case 26: w.waste=v; break;
     }
     return true;
 }

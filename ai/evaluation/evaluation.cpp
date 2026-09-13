@@ -153,6 +153,16 @@ double evaluate(
         f.waste14 * weights.waste14 +
         f.side * weights.side +
         f.nuisance * weights.nuisance +
+        f.chainUnit4 * weights.chainUnit4 +
+        f.chainUnit5 * weights.chainUnit5 +
+        f.oversizedUnit * weights.oversizedUnit +
+        f.surfaceRoughness * weights.surfaceRoughness +
+        f.maxStep * weights.maxStep +
+        f.deadSpace * weights.deadSpace +
+        f.buildSpace * weights.buildSpace +
+        f.tailSpace * weights.tailSpace +
+        f.heightVariance * weights.heightVariance +
+        f.edgeWall * weights.edgeWall +
         triggerRelayScore(board) +
         triggerQueueScore(board, context.lookahead);
 

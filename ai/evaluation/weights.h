@@ -22,6 +22,18 @@ struct Weights {
     double side;
     double nuisance;
 
+    // Human-style construction weights.
+    double chainUnit4;
+    double chainUnit5;
+    double oversizedUnit;
+    double surfaceRoughness;
+    double maxStep;
+    double deadSpace;
+    double buildSpace;
+    double tailSpace;
+    double heightVariance;
+    double edgeWall;
+
     double tear;
     double waste;
 };
