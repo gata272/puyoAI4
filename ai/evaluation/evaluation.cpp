@@ -163,10 +163,10 @@ double evaluate(
         f.tailSpace * weights.tailSpace +
         f.heightVariance * weights.heightVariance +
         f.edgeWall * weights.edgeWall +
+        f.handoffPotential * weights.handoffPotential +
         f.centralPeak * weights.centralPeak +
-        f.triggerExpansionSpace * weights.triggerExpansionSpace +
         f.edgeDeadEnd * weights.edgeDeadEnd +
-        f.futureConstructionSpace * weights.futureConstructionSpace +
+        f.futureChainSpace * weights.futureChainSpace +
         triggerRelayScore(board) +
         triggerQueueScore(board, context.lookahead);
 

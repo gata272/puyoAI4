@@ -36,11 +36,11 @@ struct Features {
     double heightVariance = 0.0;
     double edgeWall = 0.0;
 
-    // Construction geometry focused on keeping the main chain expandable.
+    // Human-derived long-chain construction signals.
+    double handoffPotential = 0.0;
     double centralPeak = 0.0;
-    double triggerExpansionSpace = 0.0;
     double edgeDeadEnd = 0.0;
-    double futureConstructionSpace = 0.0;
+    double futureChainSpace = 0.0;
 
     double tear = 0.0;
     double waste = 0.0;
