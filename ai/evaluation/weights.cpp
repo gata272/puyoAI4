@@ -21,8 +21,8 @@ Weights amaBuildWeights() {
         -50,  // waste14
         0,    // side
         -250, // nuisance
-        850,  // chainUnit4
-        1050, // chainUnit5
+        1200,  // chainUnit4
+        1600, // chainUnit5
         -650, // oversizedUnit
         -180, // surfaceRoughness
         -650, // maxStep

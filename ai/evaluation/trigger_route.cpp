@@ -85,36 +85,119 @@ int activateGroup(const Board& board, const Group& trigger, Board* after = nullp
     return chains;
 }
 
-// Return the number of simultaneously fireable groups after removing a
-// hypothetical trigger. This is used only as a mild penalty: simultaneous
-// removals consume material without increasing the chain count.
-int sameWaveGroupCount(const Board& board, const Group& trigger) {
-    Board test = board;
-    for (const Pos& p : trigger.cells) test.set(p.x, p.y, Cell::Empty);
-    gravity(test);
-
-    int groups = 0;
-    for (const auto& g : groupsOf(test, 0)) {
-        if (g.cells.size() >= 4) ++groups;
-    }
-    return groups;
-}
-
 // A hypothetical exact-3 trigger is a root of a sequential chain path. The
 // path length is the number of actual simulator chain waves produced after
 // that trigger is removed. This naturally permits A -> B -> A -> C and does
 // not impose the old four-colour limit.
+struct RouteStats {
+    int chains = 0;
+    int branchWaves = 0;
+    double unitQuality = 0.0;
+    double dependency = 0.0;
+};
+
+void removeWave(Board& board, const std::vector<Group>& firing) {
+    constexpr int dx[4] = {1,-1,0,0};
+    constexpr int dy[4] = {0,0,1,-1};
+    std::vector<Pos> popped;
+    for (const auto& g : firing) {
+        for (const Pos& p : g.cells) {
+            popped.push_back(p);
+            board.set(p.x, p.y, Cell::Empty);
+        }
+    }
+
+    // Garbage attached to a popped group is removed in the same wave, just
+    // like Simulator::resolveBoard().  Keeping this local makes the route
+    // evaluator faithful even when a debug/edited board contains garbage.
+    std::sort(popped.begin(), popped.end(), [](const Pos& a, const Pos& b) {
+        return a.x != b.x ? a.x < b.x : a.y < b.y;
+    });
+    popped.erase(std::unique(popped.begin(), popped.end(), [](const Pos& a, const Pos& b) {
+        return a.x == b.x && a.y == b.y;
+    }), popped.end());
+
+    std::vector<Pos> garbage;
+    for (const Pos& p : popped) {
+        for (int d = 0; d < 4; ++d) {
+            const int nx = p.x + dx[d];
+            const int ny = p.y + dy[d];
+            if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+            if (board.get(nx, ny) == Cell::Garbage) garbage.push_back({nx, ny});
+        }
+    }
+    std::sort(garbage.begin(), garbage.end(), [](const Pos& a, const Pos& b) {
+        return a.x != b.x ? a.x < b.x : a.y < b.y;
+    });
+    garbage.erase(std::unique(garbage.begin(), garbage.end(), [](const Pos& a, const Pos& b) {
+        return a.x == b.x && a.y == b.y;
+    }), garbage.end());
+    for (const Pos& p : garbage) board.set(p.x, p.y, Cell::Empty);
+
+    for (int x = 0; x < BOARD_WIDTH; ++x) {
+        int writeY = 0;
+        for (int y = 0; y < BOARD_HEIGHT; ++y) {
+            const Cell c = board.get(x, y);
+            if (c != Cell::Empty) board.set(x, writeY++, c);
+        }
+        while (writeY < BOARD_HEIGHT) board.set(x, writeY++, Cell::Empty);
+    }
+}
+
+RouteStats evaluateHypotheticalRoute(const Board& board, const Group& trigger) {
+    Board test = board;
+    for (const Pos& p : trigger.cells) test.set(p.x, p.y, Cell::Empty);
+
+    // The real simulator applies gravity before checking the next wave.  This
+    // is essential for trigger-tail patterns where an upper A falls onto an
+    // existing AAA after B disappears.
+    gravity(test);
+
+    // The trigger itself is the first chain wave.  We then resolve only the
+    // material that becomes connected because that wave disappeared.  This is
+    // the key distinction from simply counting many unrelated triples.
+    RouteStats stats;
+    stats.chains = 1;
+    stats.unitQuality += trigger.cells.size() == 3 ? 1.0 : 0.0;
+
+    for (int wave = 0; wave < 24; ++wave) {
+        const auto gs = groupsOf(test, 0);
+        std::vector<Group> firing;
+        for (const auto& g : gs) {
+            if (g.cells.size() >= 4) firing.push_back(g);
+        }
+        if (firing.empty()) break;
+
+        ++stats.chains;
+        if (firing.size() > 1) ++stats.branchWaves;
+
+        // 4 and 5 are the human-style sweet spot.  Larger groups are still
+        // legal and can be necessary, but they are less chain-efficient.
+        double waveQuality = 0.0;
+        for (const auto& g : firing) {
+            const int n = static_cast<int>(g.cells.size());
+            if (n == 4) waveQuality += 1.00;
+            else if (n == 5) waveQuality += 1.05;
+            else if (n == 6) waveQuality += 0.55;
+            else waveQuality += 0.20 / static_cast<double>(std::max(1, n - 5));
+        }
+        stats.unitQuality += waveQuality;
+
+        // A sequential route gets a small compounding bonus.  This makes
+        // 10->11 meaningful, while still leaving the actual chain count as
+        // the dominant objective.
+        stats.dependency += 1.0 + std::min(2.0, waveQuality);
+        removeWave(test, firing);
+    }
+    return stats;
+}
+
 int bestHypotheticalPath(const Board& board) {
-    // Full hypothetical resolution is the expensive part of the evaluator.
-    // Evaluate the most promising exact-3 anchors first. A small candidate
-    // cap keeps normal beam search fast while still considering spatially
-    // distinct anchors. The cheap pre-score is deliberately conservative:
-    // exact-3 groups with nearby occupied material are more likely to be a
-    // useful transfer point than isolated triples.
     struct Candidate {
         const Group* group = nullptr;
         int score = 0;
     };
+
     const auto triggerGroups = groupsOf(board, 3);
     std::vector<Candidate> candidates;
     candidates.reserve(triggerGroups.size());
@@ -128,7 +211,7 @@ int bestHypotheticalPath(const Board& board) {
                 const int ny = p.y + dy[d];
                 if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= VISIBLE_HEIGHT) continue;
                 const Cell c = board.get(nx, ny);
-                if (c != Cell::Empty && c != Cell::Garbage && c != g.color) ++s;
+                if (isColor(c) && c != g.color) ++s;
             }
         }
         candidates.push_back({&g, s});
@@ -140,10 +223,21 @@ int bestHypotheticalPath(const Board& board) {
 
     constexpr std::size_t kMaxHypotheticalTriggers = 6;
     int best = 0;
+    double bestTie = -1.0;
     const std::size_t limit = std::min(kMaxHypotheticalTriggers, candidates.size());
     for (std::size_t i = 0; i < limit; ++i) {
-        const int follow = activateGroup(board, *candidates[i].group);
-        best = std::max(best, follow > 0 ? 1 + follow : 1);
+        const RouteStats stats = evaluateHypotheticalRoute(board, *candidates[i].group);
+        // Prefer a longer route first; among equal routes prefer 4/5-sized,
+        // non-branching units.  This is deliberately not returned directly as
+        // a chain count because callers use triggerRouteLength() as a cheap
+        // structural ranking signal.
+        const double tie = stats.unitQuality * 10.0
+                         + stats.dependency * 3.0
+                         - static_cast<double>(stats.branchWaves) * 18.0;
+        if (stats.chains > best || (stats.chains == best && tie > bestTie)) {
+            best = stats.chains;
+            bestTie = tie;
+        }
     }
     return best;
 }
@@ -170,8 +264,9 @@ double chainDependencyPathScore(const Board& board) {
     const int path = bestHypotheticalPath(board);
     if (path <= 0) return 0.0;
 
-    // Super-linear but bounded: moving from 7 to 8 or 9 to 10 is more valuable
-    // than merely accumulating many unrelated triples.
+    // Keep the established path scale. The detailed route analysis above is
+    // used for regression/diagnostic quality, while the production score stays
+    // comparable to the previous tuned AI.
     const double p = static_cast<double>(path);
     return std::min(180000.0, 9000.0 * p + 2200.0 * p * p);
 }
@@ -182,12 +277,14 @@ double chainDependencyBranchPenalty(const Board& board) {
         const int path = activateGroup(board, trigger);
         if (path <= 0) continue;
 
-        const int firstWaveGroups = sameWaveGroupCount(board, trigger);
+        Board test = board;
+        for (const Pos& p : trigger.cells) test.set(p.x, p.y, Cell::Empty);
+        gravity(test);
+        int firstWaveGroups = 0;
+        for (const auto& g : groupsOf(test, 0)) {
+            if (g.cells.size() >= 4) ++firstWaveGroups;
+        }
         if (firstWaveGroups > 1) {
-            // Do not punish a large connected group: groupsOf() already counts
-            // it as one. Penalize only genuinely parallel groups in the same
-            // wave, and keep the penalty modest so a necessary branch never
-            // overwhelms a long sequential path.
             penalty += static_cast<double>(firstWaveGroups - 1) * 2500.0;
         }
     }
