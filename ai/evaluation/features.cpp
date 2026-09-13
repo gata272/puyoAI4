@@ -194,6 +194,10 @@ struct ConstructionMetrics {
     double tailSpace = 0.0;
     double variance = 0.0;
     double edgeWall = 0.0;
+    double centralPeak = 0.0;
+    double triggerExpansionSpace = 0.0;
+    double edgeDeadEnd = 0.0;
+    double futureConstructionSpace = 0.0;
 };
 
 
@@ -257,6 +261,99 @@ int reachableSlotsForGroup(const Board& board, const SimpleGroup& g) {
     return count;
 }
 
+
+// Score the amount of *physically reachable* construction room around the
+// strongest exact-three trigger.  This is intentionally local: the evaluator
+// should not reward an empty board, but it should strongly prefer a trigger
+// from which the next B->A / C->B transfer can still be placed.
+std::pair<double,double> triggerGeometry(const Board& board) {
+    const auto groups = colorGroups(board);
+    const auto h = board.heights();
+    double bestSpace = 0.0;
+    double bestDeadEnd = 0.0;
+    double bestFuture = 0.0;
+
+    for (const auto& g : groups) {
+        if (g.size != 3) continue;
+
+        bool used[BOARD_WIDTH][VISIBLE_HEIGHT]{};
+        int attach = 0;
+        int horizontalDirections = 0;
+        bool leftReach = false;
+        bool rightReach = false;
+        int maxHeadroom = 0;
+
+        for (int i = 0; i < g.cellCount; ++i) {
+            const auto [x,y] = g.cells[i];
+            constexpr int dx[4] = {1,-1,0,0};
+            constexpr int dy[4] = {0,0,1,-1};
+            for (int d=0; d<4; ++d) {
+                const int nx=x+dx[d], ny=y+dy[d];
+                if (nx<0 || nx>=BOARD_WIDTH || ny<0 || ny>=VISIBLE_HEIGHT) continue;
+                if (board.get(nx,ny)!=Cell::Empty || h[nx]!=ny) continue;
+                if (!used[nx][ny]) {
+                    used[nx][ny]=true;
+                    ++attach;
+                    maxHeadroom = std::max(maxHeadroom, VISIBLE_HEIGHT - h[nx]);
+                    if (nx < x) leftReach = true;
+                    if (nx > x) rightReach = true;
+                }
+            }
+        }
+        horizontalDirections = static_cast<int>(leftReach) + static_cast<int>(rightReach);
+
+        // Give the best trigger a modest bonus for having both horizontal
+        // escape directions. Vertical-only escape is fragile near a wall.
+        const double space = std::min(10.0, attach * 1.6 + horizontalDirections * 2.2
+                                      + std::min(maxHeadroom, 6) * 0.35);
+
+        int cx = 0;
+        int loX = BOARD_WIDTH, hiX = -1;
+        for (int i=0;i<g.cellCount;++i) {
+            loX = std::min(loX, g.cells[i].first);
+            hiX = std::max(hiX, g.cells[i].first);
+            cx += g.cells[i].first;
+        }
+        cx = static_cast<int>(std::lround(static_cast<double>(cx) / g.cellCount));
+
+        const bool edge = (loX == 0 || hiX == BOARD_WIDTH-1);
+        const bool oneSided = horizontalDirections < 2;
+        double deadEnd = 0.0;
+        if (edge && oneSided) deadEnd += 4.0;
+        if (attach <= 1) deadEnd += 3.0;
+        if (h[cx] >= 9) deadEnd += 1.5;
+        if (std::min(h[0], h[5]) >= 11) deadEnd += 1.0;
+
+        // Hypothetical trigger removal: measure whether the columns occupied
+        // by the trigger become useful receiving space after gravity. This is
+        // a cheap structural proxy rather than a full chain simulation.
+        Board after = board;
+        for (int i=0;i<g.cellCount;++i)
+            after.set(g.cells[i].first, g.cells[i].second, Cell::Empty);
+        for (int x=0;x<BOARD_WIDTH;++x) {
+            int writeY=0;
+            for (int y=0;y<BOARD_HEIGHT;++y) {
+                const Cell c=after.get(x,y);
+                if (c!=Cell::Empty) after.set(x,writeY++,c);
+            }
+            while (writeY<BOARD_HEIGHT) after.set(x,writeY++,Cell::Empty);
+        }
+        const auto ah = after.heights();
+        double future = 0.0;
+        for (int x=std::max(0,loX-1); x<=std::min(BOARD_WIDTH-1,hiX+1); ++x) {
+            if (ah[x] >= 11) continue;
+            future += std::min(4, VISIBLE_HEIGHT-ah[x]) * 0.5;
+        }
+
+        if (space > bestSpace || (space == bestSpace && future > bestFuture)) {
+            bestSpace = space;
+            bestDeadEnd = deadEnd;
+            bestFuture = std::min(10.0, future);
+        }
+    }
+    return {bestSpace, bestDeadEnd + std::max(0.0, 4.0-bestSpace)*0.5};
+}
+
 ConstructionMetrics getConstructionMetrics(const Board& board) {
     ConstructionMetrics m;
     const auto h = board.heights();
@@ -304,15 +401,17 @@ ConstructionMetrics getConstructionMetrics(const Board& board) {
         }
     }
 
-    int totalDiff=0;
+    double excessSlope = 0.0;
     for (int x=0; x<BOARD_WIDTH-1; ++x) {
-        const int d=std::abs(h[x+1]-h[x]);
-        totalDiff += d;
-        m.maxStep = std::max(m.maxStep, static_cast<double>(d));
+        // A one-row slope is considered normal construction geometry. Penalize
+        // only sharper steps, so a gentle 6-5-4-4-5-6 edge-wall shape is not
+        // treated as rough while a 1-5-1-5 surface remains strongly bad.
+        const double d = static_cast<double>(std::abs(h[x+1]-h[x]));
+        const double excess = std::max(0.0, d - 1.0);
+        excessSlope += excess;
+        m.maxStep = std::max(m.maxStep, excess);
     }
-    // Raw adjacent differences are more interpretable than variance for the
-    // six-column field. Cap the metric so a pathological board cannot dominate.
-    m.roughness = std::min(36.0, static_cast<double>(totalDiff));
+    m.roughness = std::min(24.0, excessSlope);
 
     double mean=0.0;
     for (int v : h) mean += v;
@@ -355,12 +454,32 @@ ConstructionMetrics getConstructionMetrics(const Board& board) {
 
     // Prefer both edges to act as mild walls only when they are higher than
     // the center and neither edge is itself dangerously high.
-    const double left = h[0] + h[1];
-    const double right = h[4] + h[5];
-    const double center = h[2] + h[3];
-    const double wall = std::max(0.0, std::min(left,right) - center*0.5);
+    const double left = (h[0] + h[1]) / 2.0;
+    const double right = (h[4] + h[5]) / 2.0;
+    const double center = (h[2] + h[3]) / 2.0;
+    const double wall = std::max(0.0, std::min(left, right) - center);
     const double asym = std::abs(left-right);
-    m.edgeWall = std::clamp(wall - 0.25*asym, 0.0, 12.0);
+    m.edgeWall = std::clamp(wall - 0.20*asym, 0.0, 6.0);
+
+    // Penalize the specific geometry that repeatedly trapped the main chain:
+    // a high central wall with comparatively low edges.  Flatness alone is
+    // not the target; a gentle edge-high / center-low profile remains good.
+    const double edgeMean = (h[0] + h[1] + h[4] + h[5]) / 4.0;
+    const double centerMean = (h[2] + h[3]) / 2.0;
+    const double centerExcess = std::max(0.0, centerMean - edgeMean - 1.0);
+    const double centerPeak = std::max(0.0,
+        std::max(h[2], h[3]) - std::max(h[0], std::max(h[1], std::max(h[4], h[5]))) - 1.0);
+    m.centralPeak = std::clamp(centerExcess * 1.5 + centerPeak * 0.75, 0.0, 12.0);
+
+    const auto tg = triggerGeometry(board);
+    m.triggerExpansionSpace = tg.first;
+    m.edgeDeadEnd = tg.second;
+    // The general receiving-space signal is deliberately capped and does not
+    // count all empty cells. It rewards room in the neighborhood where a
+    // main-chain transfer is most likely to be built.
+    m.futureConstructionSpace = std::clamp(
+        m.buildSpace * 0.12 + m.tailSpace * 0.55 - m.centralPeak * 0.35,
+        0.0, 18.0);
 
     return m;
 }
@@ -426,6 +545,10 @@ Features extractStaticFeatures(const Board& board) {
     f.tailSpace = cm.tailSpace;
     f.heightVariance = cm.variance;
     f.edgeWall = cm.edgeWall;
+    f.centralPeak = cm.centralPeak;
+    f.triggerExpansionSpace = cm.triggerExpansionSpace;
+    f.edgeDeadEnd = cm.edgeDeadEnd;
+    f.futureConstructionSpace = cm.futureConstructionSpace;
 
     return f;
 }

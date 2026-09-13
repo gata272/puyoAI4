@@ -33,6 +33,10 @@ struct Weights {
     double tailSpace;
     double heightVariance;
     double edgeWall;
+    double centralPeak;
+    double triggerExpansionSpace;
+    double edgeDeadEnd;
+    double futureConstructionSpace;
 
     double tear;
     double waste;

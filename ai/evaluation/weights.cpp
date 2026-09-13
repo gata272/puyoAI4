@@ -21,8 +21,8 @@ Weights amaBuildWeights() {
         -50,  // waste14
         0,    // side
         -250, // nuisance
-        1200,  // chainUnit4
-        1600, // chainUnit5
+        850,  // chainUnit4
+        1050, // chainUnit5
         -650, // oversizedUnit
         -180, // surfaceRoughness
         -650, // maxStep
@@ -31,6 +31,10 @@ Weights amaBuildWeights() {
         80,   // tailSpace
         -45,  // heightVariance
         35,   // edgeWall
+        -100, // centralPeak
+        180,  // triggerExpansionSpace
+        -180, // edgeDeadEnd
+        35,   // futureConstructionSpace
         -250, // tear
         -250  // waste
     };
@@ -45,6 +49,7 @@ constexpr const char* kWeightNames[] = {
     "waste14", "side", "nuisance",
     "chainUnit4", "chainUnit5", "oversizedUnit", "surfaceRoughness",
     "maxStep", "deadSpace", "buildSpace", "tailSpace", "heightVariance", "edgeWall",
+    "centralPeak", "triggerExpansionSpace", "edgeDeadEnd", "futureConstructionSpace",
     "tear", "waste"
 };
 constexpr int kWeightCount = static_cast<int>(sizeof(kWeightNames) / sizeof(kWeightNames[0]));
@@ -63,7 +68,8 @@ double getWeight(const Weights& w, int i) {
         case 15: return w.chainUnit4; case 16: return w.chainUnit5; case 17: return w.oversizedUnit;
         case 18: return w.surfaceRoughness; case 19: return w.maxStep; case 20: return w.deadSpace;
         case 21: return w.buildSpace; case 22: return w.tailSpace; case 23: return w.heightVariance;
-        case 24: return w.edgeWall; case 25: return w.tear; case 26: return w.waste;
+        case 24: return w.edgeWall; case 25: return w.centralPeak; case 26: return w.triggerExpansionSpace;
+        case 27: return w.edgeDeadEnd; case 28: return w.futureConstructionSpace; case 29: return w.tear; case 30: return w.waste;
         default: return 0.0;
     }
 }
@@ -78,7 +84,8 @@ bool setWeight(Weights& w, int i, double v) {
         case 15: w.chainUnit4=v; break; case 16: w.chainUnit5=v; break; case 17: w.oversizedUnit=v; break;
         case 18: w.surfaceRoughness=v; break; case 19: w.maxStep=v; break; case 20: w.deadSpace=v; break;
         case 21: w.buildSpace=v; break; case 22: w.tailSpace=v; break; case 23: w.heightVariance=v; break;
-        case 24: w.edgeWall=v; break; case 25: w.tear=v; break; case 26: w.waste=v; break;
+        case 24: w.edgeWall=v; break; case 25: w.centralPeak=v; break; case 26: w.triggerExpansionSpace=v; break;
+        case 27: w.edgeDeadEnd=v; break; case 28: w.futureConstructionSpace=v; break; case 29: w.tear=v; break; case 30: w.waste=v; break;
     }
     return true;
 }
