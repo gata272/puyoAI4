@@ -44,8 +44,8 @@ jobs:
             ai/simulation/board.cpp \
             ai/simulation/simulator.cpp \
             ai/evaluation/features.cpp \
-            ai/evaluation/evaluation.cpp \
             ai/evaluation/weights.cpp \
+            ai/evaluation/evaluation.cpp \
             ai/evaluation/trigger_route.cpp \
             ai/evaluation/long_chain_potential.cpp \
             ai/evaluation/main_chain.cpp \
@@ -165,6 +165,8 @@ jobs:
             --exclude='trigger_structure_test' \
             --exclude='chain_dependency_test' \
             --exclude='long_chain_potential_test' \
+            --exclude='main_chain_test' \
+            --exclude='weight_api_test' \
             ./ _site/
 
           cp puyoAI_wasm.mjs _site/puyoAI_wasm.mjs
