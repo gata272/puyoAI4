@@ -31,6 +31,10 @@ test:
 		tests/test_construction_features.cpp $(AI_SOURCES) \
 		-o /tmp/puyoai_construction_test
 	/tmp/puyoai_construction_test
+	$(CXX) $(CXXFLAGS) $(INCLUDES) \
+		tests/test_chain_dependency.cpp ai/simulation/board.cpp ai/simulation/simulator.cpp ai/evaluation/trigger_route.cpp \
+		-o /tmp/puyoai_chain_dependency_test
+	/tmp/puyoai_chain_dependency_test
 
 benchmark:
 	$(CXX) $(CXXFLAGS) $(INCLUDES) \
@@ -39,4 +43,4 @@ benchmark:
 	/tmp/puyoai_benchmark 4 60 20260908 2 4
 
 clean:
-	rm -f /tmp/puyoai_test /tmp/puyoai_construction_test /tmp/puyoai_benchmark
+	rm -f /tmp/puyoai_test /tmp/puyoai_construction_test /tmp/puyoai_chain_dependency_test /tmp/puyoai_benchmark
