@@ -4,6 +4,7 @@
 #include "../evaluation/evaluation.h"
 #include "../evaluation/trigger_route.h"
 #include "../evaluation/long_chain_potential.h"
+#include "../evaluation/main_chain.h"
 #include "../evaluation/debug_log.h"
 #include "../simulation/simulator.h"
 
@@ -29,6 +30,8 @@ struct Node {
     int triggerRoute = 0;
     double longPotential = 0.0;
     double structure = 0.0;
+    MainChainPlan mainChain;
+    double mainChainScore = 0.0;
     bool gameOver = false;
 };
 
@@ -93,6 +96,12 @@ std::vector<Node> expandNode(
         candidate.maxChain = std::max(parent.maxChain, sim.chains);
         candidate.triggerRoute = std::max(parent.triggerRoute, triggerRouteLength(sim.board));
         candidate.longPotential = longChainPotential(sim.board, ctx.lookahead);
+        candidate.mainChain = analyzeMainChain(sim.board);
+        candidate.mainChainScore = mainChainContinuityScore(
+            parent.mainChain, candidate.mainChain, sim.chains);
+        candidate.mainChainScore += mainChainCleanupScore(
+            parent.mainChain, candidate.mainChain, sim.chains);
+        local += candidate.mainChainScore;
         // Structural guidance is deliberately strongest while the branch is
         // quiet.  Once a real chain has fired, the normal chain objective and
         // simulator state take priority.
@@ -235,6 +244,8 @@ void debugBeamSummary(const std::vector<Node>& beam, int depth, int beamWidth) {
             << " route=" << x.triggerRoute
             << " longPotential=" << x.longPotential
             << " structure=" << x.structure
+            << " mainChain=" << x.mainChain.length()
+            << " mainContinuity=" << x.mainChainScore
             << " gameOver=" << (x.gameOver ? 1 : 0) << '\n';
     }
     debugLog(oss.str());
@@ -245,7 +256,9 @@ double finalUtility(const Node& n) {
     // lexicographic gate. A quiet 5-chain construction with much higher latent
     // potential can now beat a prematurely-cashed 7-chain.
     return n.score + static_cast<double>(n.maxChain) * 70000.0
-         + n.longPotential * 5000.0;
+         + n.longPotential * 5000.0
+         + static_cast<double>(n.mainChain.length()) * 18000.0
+         + n.mainChainScore * 0.75;
 }
 
 bool betterFinal(const Node& a, const Node& b) {
@@ -283,6 +296,7 @@ Move chooseRoot(
     // globally through subsequent pieces.
     Node root;
     root.board = board;
+    root.mainChain = analyzeMainChain(board);
 
     std::vector<Node> beam = {root};
 
@@ -356,6 +370,13 @@ Move chooseRoot(
             << " route=" << best->triggerRoute
             << " longPotential=" << best->longPotential
             << " structure=" << best->structure
+            << " mainChain=" << best->mainChain.length()
+            << " mainRoute=";
+        for (std::size_t i = 0; i < best->mainChain.colors.size(); ++i) {
+            if (i) oss << "->";
+            oss << best->mainChain.colors[i];
+        }
+        oss << " mainContinuity=" << best->mainChainScore
             << " gameOver=" << (best->gameOver ? 1 : 0) << "\n"
             << "[AI-DEBUG] selected board (top->bottom):\n"
             << debugBoard(best->board);
@@ -374,8 +395,8 @@ Move BeamSearch::chooseMove(
     int beamWidth
 ) const {
     return chooseRoot(board, pieces, weights,
-                      std::max(1, depth),
-                      std::max(1, beamWidth));
+                      std::clamp(depth, 1, 50),
+                      std::clamp(beamWidth, 1, 500));
 }
 
 } // namespace puyo
