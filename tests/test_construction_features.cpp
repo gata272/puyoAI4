@@ -46,20 +46,26 @@ int main() {
     auto hf = extractStaticFeatures(hole);
     assert(hf.deadSpace >= 1.0);
 
-    // A central mountain should be penalized more than an edge-supported shape.
-    Board centerMountain;
-    const int mh[6] = {2,3,8,8,3,2};
-    putFlat(centerMountain, mh, Cell::Blue);
-    auto mf = extractStaticFeatures(centerMountain);
-    assert(mf.centralPeak > 0.0);
-
     // Weight API remains finite and exposes all new structural terms.
     Weights w = amaBuildWeights();
     assert(weightCount() == 31);
-    for (int i = 15; i <= 28; ++i) {
+    for (int i = 15; i <= 30; ++i) {
         assert(weightName(i)[0] != '\0');
         assert(std::isfinite(getWeight(w, i)));
     }
+
+    // Central towers should be worse than a gentle edge-supported field.
+    Board centerTower;
+    for (int x = 0; x < 6; ++x)
+        for (int y = 0; y < (x == 2 || x == 3 ? 7 : 3); ++y)
+            centerTower.set(x, y, Cell::Blue);
+    Board edgeSupported;
+    const int eh[6] = {5,4,3,3,4,5};
+    putFlat(edgeSupported, eh, Cell::Blue);
+    auto ct = extractStaticFeatures(centerTower);
+    auto es = extractStaticFeatures(edgeSupported);
+    assert(ct.centralPeak > es.centralPeak);
+    assert(es.edgeWall >= 0.0);
 
     std::cout << "construction feature tests passed\n";
     return 0;
