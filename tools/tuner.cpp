@@ -14,13 +14,22 @@
 
 using namespace puyo;
 
-struct Vec { double v[16]; };
+constexpr int kTunedWeights = 27;
+
+struct Vec { double v[kTunedWeights]; };
 
 Vec toVec(const Weights& w) {
-    return {{w.chain,w.y,w.key,w.chi,w.shape,w.well,w.bump,w.form,w.chainPotential,w.link2,w.link3,w.waste14,w.side,w.nuisance,w.tear,w.waste}};
+    Vec out{};
+    for (int i = 0; i < kTunedWeights; ++i) out.v[i] = getWeight(w, i);
+    return out;
 }
+
 Weights fromVec(const Vec& x) {
-    return {x.v[0],x.v[1],x.v[2],x.v[3],x.v[4],x.v[5],x.v[6],x.v[7],x.v[8],x.v[9],x.v[10],x.v[11],x.v[12],x.v[13],x.v[14],x.v[15]};
+    Weights w = amaBuildWeights();
+    for (int i = 0; i < kTunedWeights; ++i) {
+        if (!setWeight(w, i, x.v[i])) return amaBuildWeights();
+    }
+    return w;
 }
 
 std::vector<PuyoPair> queueFor(std::mt19937& rng, int n) {
@@ -62,16 +71,23 @@ double evaluateWeights(const Vec& x, int seed, int games, int turns) {
 }
 
 void clamp(Vec& x) {
-    static const double lo[16]={100,-500,-1000,0,-500,-500,-500,-100,-500,-500,-500,-200,-500,-1000,-1000,-1000};
-    static const double hi[16]={5000,1000,500,1000,500,500,500,500,1000,1000,1000,200,500,0,0,0};
-    for(int i=0;i<16;++i) x.v[i]=std::max(lo[i],std::min(hi[i],x.v[i]));
+    static const double lo[kTunedWeights]={
+        100,-500,-1000,0,-500,-500,-500,-100,-500,-500,-500,-200,-500,-1000,-1000,
+        0,0,-1500,-1000,-1500,-1500,0,0,-500,0,-1000,-1000
+    };
+    static const double hi[kTunedWeights]={
+        5000,1000,500,1000,500,500,500,500,1000,1000,1000,200,500,0,0,
+        2500,3000,0,0,0,0,300,400,0,300,0,0
+    };
+    for(int i=0;i<kTunedWeights;++i) x.v[i]=std::max(lo[i],std::min(hi[i],x.v[i]));
 }
 
 void writeJson(const Vec& x,const std::string& path){
     std::ofstream o(path);
-    const char* names[]={"chain","y","key","chi","shape","well","bump","form","chain_potential","link_2","link_3","waste_14","side","nuisance","tear","waste"};
     o<<"{\n  \"profile\": \"spsa\",\n  \"weights\": {\n";
-    for(int i=0;i<16;++i) o<<"    \""<<names[i]<<"\": "<<std::llround(x.v[i])<<(i==15?"\n":" ,\n");
+    for(int i=0;i<kTunedWeights;++i) {
+        o<<"    \""<<weightName(i)<<"\": "<<std::llround(x.v[i])<<(i==kTunedWeights-1?"\n":" ,\n");
+    }
     o<<"  }\n}\n";
 }
 
@@ -95,13 +111,13 @@ int main(int argc,char**argv){
         const double ak=a/std::pow(k+1+A,alpha);
         const double ck=c/std::pow(k+1,gamma);
         Vec plus=x, minus=x;
-        int delta[16];
-        for(int i=0;i<16;++i){ delta[i]=(rng()&1)?1:-1; plus.v[i]+=ck*delta[i]; minus.v[i]-=ck*delta[i]; }
+        int delta[kTunedWeights];
+        for(int i=0;i<kTunedWeights;++i){ delta[i]=(rng()&1)?1:-1; plus.v[i]+=ck*delta[i]; minus.v[i]-=ck*delta[i]; }
         clamp(plus); clamp(minus);
         const int commonSeed = seed + k*17;
         const double yp=evaluateWeights(plus,commonSeed,games,turns);
         const double ym=evaluateWeights(minus,commonSeed,games,turns);
-        for(int i=0;i<16;++i) x.v[i]+=ak*((yp-ym)/(2*ck*delta[i]));
+        for(int i=0;i<kTunedWeights;++i) x.v[i]+=ak*((yp-ym)/(2*ck*delta[i]));
         clamp(x);
         const double y=evaluateWeights(x,commonSeed,games,turns);
         if(y>best){best=y;bestX=x;}
