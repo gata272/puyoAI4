@@ -40,4 +40,21 @@ double mainChainCleanupScore(
     int actualChains
 );
 
+// Scores the physical construction around the remembered route.  This is
+// intentionally separate from the ama-style static evaluator: it rewards a
+// single expandable spine, protects workspace, and treats edge height as a
+// wall only when it leaves useful central construction space.
+double mainChainConstructionScore(
+    const Board& board,
+    const MainChainPlan& plan
+);
+
+// Penalizes "cash-out" states where a prepared route exists but the board is
+// already one easy placement away from an unrelated trigger.  It is a soft
+// risk signal, never a hard legality rule.
+double prematureMainChainTriggerRisk(
+    const Board& board,
+    const MainChainPlan& plan
+);
+
 } // namespace puyo

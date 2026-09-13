@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <queue>
 #include <utility>
 #include <vector>
@@ -98,8 +99,19 @@ struct Candidate {
 MainChainPlan routeFromTrigger(const Board& source, const Group& trigger) {
     MainChainPlan plan;
     plan.colors.push_back(static_cast<int>(trigger.color));
-    plan.anchorX = trigger.cells.front().x;
-    plan.anchorY = trigger.cells.front().y;
+    // The BFS first cell is arbitrary.  Use the centroid of the trigger
+    // instead, so spatial policy does not accidentally depend on traversal
+    // order.
+    int sumX = 0;
+    int sumY = 0;
+    for (const Pos& p : trigger.cells) {
+        sumX += p.x;
+        sumY += p.y;
+    }
+    plan.anchorX = static_cast<int>(
+        std::lround(static_cast<double>(sumX) / trigger.cells.size()));
+    plan.anchorY = static_cast<int>(
+        std::lround(static_cast<double>(sumY) / trigger.cells.size()));
 
     Board board = source;
     removeGroups(board, {trigger});
@@ -207,6 +219,98 @@ double mainChainContinuityScore(
     return score;
 }
 
+
+namespace {
+
+bool inside(int x, int y) { return x >= 0 && x < BOARD_WIDTH && y >= 0 && y < VISIBLE_HEIGHT; }
+
+bool routeContainsColor(const MainChainPlan& plan, Cell c) {
+    const int value = static_cast<int>(c);
+    return std::find(plan.colors.begin(), plan.colors.end(), value) != plan.colors.end();
+}
+
+int countColorGroups(const Board& board, int wantedSize, Cell wantedColor = Cell::Empty) {
+    bool seen[BOARD_WIDTH][VISIBLE_HEIGHT]{};
+    int count = 0;
+    constexpr int dx[4] = {1,-1,0,0};
+    constexpr int dy[4] = {0,0,1,-1};
+
+    for (int y = 0; y < VISIBLE_HEIGHT; ++y) {
+        for (int x = 0; x < BOARD_WIDTH; ++x) {
+            const Cell c = board.get(x,y);
+            if (!isColor(c) || seen[x][y] ||
+                (wantedColor != Cell::Empty && c != wantedColor)) continue;
+
+            int size = 0;
+            std::queue<Pos> q;
+            q.push({x,y});
+            seen[x][y] = true;
+            while (!q.empty()) {
+                const Pos p = q.front(); q.pop();
+                ++size;
+                for (int d = 0; d < 4; ++d) {
+                    const int nx = p.x + dx[d];
+                    const int ny = p.y + dy[d];
+                    if (!inside(nx,ny) || seen[nx][ny]) continue;
+                    if (board.get(nx,ny) == c) {
+                        seen[nx][ny] = true;
+                        q.push({nx,ny});
+                    }
+                }
+            }
+            if (size == wantedSize) ++count;
+        }
+    }
+    return count;
+}
+
+int countEmptyCells(const Board& board) {
+    int empty = 0;
+    for (int x = 0; x < BOARD_WIDTH; ++x)
+        for (int y = 0; y < VISIBLE_HEIGHT; ++y)
+            if (board.get(x,y) == Cell::Empty) ++empty;
+    return empty;
+}
+
+double edgeWallQuality(const Board& board) {
+    const auto h = board.heights();
+    const double left = static_cast<double>(h[0] + h[1]);
+    const double right = static_cast<double>(h[4] + h[5]);
+    const double center = static_cast<double>(h[2] + h[3]);
+
+    // A useful wall is high enough to contain material, but the center must
+    // remain lower.  Do not reward a uniformly high board.
+    const double wall = std::max(0.0, std::min(left, right) - center * 0.5);
+    const double asymmetry = std::abs(left - right);
+    return std::max(0.0, wall - 0.20 * asymmetry);
+}
+
+double routeSpatialQuality(const Board& board, const MainChainPlan& plan) {
+    if (plan.empty()) return 0.0;
+
+    const auto h = board.heights();
+    // The anchor is only a representative cell, so use its column plus the
+    // actual route length to prefer an expandable middle region.
+    const int x = std::clamp(plan.anchorX, 0, BOARD_WIDTH - 1);
+    const double centerDistance = std::abs(static_cast<double>(x) - 2.5);
+
+    // A route can live near an edge if it has a wall beside it; otherwise
+    // central columns are safer because both horizontal directions remain.
+    double score = 0.0;
+    if (x == 0 || x == 5) score -= 500.0;
+    else score += 500.0;
+    score -= centerDistance * 180.0;
+
+    const int leftSpace = VISIBLE_HEIGHT - h[0];
+    const int rightSpace = VISIBLE_HEIGHT - h[5];
+    const int verticalSpace = VISIBLE_HEIGHT - h[x];
+    score += std::min(8, verticalSpace) * 120.0;
+    score += std::min(6, std::min(leftSpace, rightSpace)) * 70.0;
+    return score;
+}
+
+} // namespace
+
 double mainChainCleanupScore(
     const MainChainPlan& parent,
     const MainChainPlan& child,
@@ -222,6 +326,93 @@ double mainChainCleanupScore(
     // Cleanup is deliberately secondary. It can help when the next useful
     // colour is absent, but it must never outrank a real extension.
     return 4500.0 + static_cast<double>(prefix) * 700.0;
+}
+
+double mainChainConstructionScore(
+    const Board& board,
+    const MainChainPlan& plan
+) {
+    if (plan.empty()) return 0.0;
+
+    const int triples = countColorGroups(board, 3);
+    const int pairs = countColorGroups(board, 2);
+    const int empty = countEmptyCells(board);
+
+    // A long sequential route is worth much more than a pile of unrelated
+    // pairs. Repeated colours are intentionally not penalized.
+    const double route = static_cast<double>(plan.length());
+    double score = route * 4200.0;
+    if (plan.length() >= 2) score += static_cast<double>(plan.length() - 1) * 2600.0;
+    score += std::min(triples, 5) * 500.0;
+    score += std::min(pairs, 8) * 90.0;
+
+    // Keep enough empty cells for the next dependency transfer. The score
+    // saturates so "empty board" does not beat a real prepared structure.
+    score += std::min(empty, 28) * 35.0;
+
+    // Central/side geometry and edge walls are deliberately soft.
+    score += routeSpatialQuality(board, plan);
+    score += edgeWallQuality(board) * 45.0;
+
+    // If the route's anchor colour is absent from the plan this cannot happen
+    // for a valid analyzed plan, but retaining the guard makes the metric safe
+    // for externally constructed test plans.
+    if (plan.anchorX >= 0 && plan.anchorY >= 0 &&
+        routeContainsColor(plan, board.get(plan.anchorX, plan.anchorY))) {
+        score += 250.0;
+    }
+
+    return std::clamp(score, -20000.0, 90000.0);
+}
+
+double prematureMainChainTriggerRisk(
+    const Board& board,
+    const MainChainPlan& plan
+) {
+    if (plan.empty()) return 0.0;
+
+    bool seen[BOARD_WIDTH][VISIBLE_HEIGHT]{};
+    double risk = 0.0;
+    constexpr int dx[4] = {1,-1,0,0};
+    constexpr int dy[4] = {0,0,1,-1};
+
+    for (int y = 0; y < VISIBLE_HEIGHT; ++y) {
+        for (int x = 0; x < BOARD_WIDTH; ++x) {
+            const Cell c = board.get(x,y);
+            if (!isColor(c) || seen[x][y]) continue;
+
+            int size = 0;
+            bool hasEmptyAttachment = false;
+            std::queue<Pos> q;
+            q.push({x,y});
+            seen[x][y] = true;
+            while (!q.empty()) {
+                const Pos p = q.front(); q.pop();
+                ++size;
+                for (int d = 0; d < 4; ++d) {
+                    const int nx = p.x + dx[d];
+                    const int ny = p.y + dy[d];
+                    if (!inside(nx,ny)) continue;
+                    const Cell n = board.get(nx,ny);
+                    if (n == Cell::Empty) hasEmptyAttachment = true;
+                    else if (n == c && !seen[nx][ny]) {
+                        seen[nx][ny] = true;
+                        q.push({nx,ny});
+                    }
+                }
+            }
+
+            if (size != 3 || !hasEmptyAttachment) continue;
+
+            // A prepared triple whose colour belongs to the current route is
+            // useful, not premature. Unrelated triples are only a soft risk.
+            if (!routeContainsColor(plan, c)) {
+                risk += 1200.0;
+            }
+        }
+    }
+
+    return std::min(18000.0, risk);
 }
 
 } // namespace puyo
