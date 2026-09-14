@@ -14,6 +14,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <unordered_map>
+#include <cstdint>
 
 namespace puyo {
 namespace {
@@ -81,8 +83,17 @@ std::vector<Node> expandNode(
         EvaluationContext ctx;
         // The trigger planner is deliberately limited to the same three
         // visible pairs a human-style policy is allowed to use.
-        const int remaining = std::min(3, static_cast<int>(remainingPieces.size()));
-        ctx.lookahead.assign(remainingPieces.begin(), remainingPieces.begin() + remaining);
+        // `remainingPieces` starts at the current depth.  The current pair has
+        // already been placed, so evaluation must see the *next* visible
+        // pieces, not the pair that was just consumed.
+        const std::size_t lookStart = 1;
+        const std::size_t lookEnd = std::min(
+            remainingPieces.size(), lookStart + static_cast<std::size_t>(3));
+        if (lookStart < lookEnd) {
+            ctx.lookahead.assign(
+                remainingPieces.begin() + static_cast<std::ptrdiff_t>(lookStart),
+                remainingPieces.begin() + static_cast<std::ptrdiff_t>(lookEnd));
+        }
         // Only terminal candidates pay the expensive ama-style quiet search.
         ctx.quiescenceDepth = (nextDepth >= maxDepth) ? 3 : 0;
 
@@ -94,7 +105,6 @@ std::vector<Node> expandNode(
         Node candidate;
         candidate.board = sim.board;
         candidate.root = parent.root.valid ? parent.root : move;
-        candidate.score = parent.score + local;
         candidate.maxChain = std::max(parent.maxChain, sim.chains);
         candidate.triggerRoute = std::max(parent.triggerRoute, triggerRouteLength(sim.board));
         candidate.longPotential = longChainPotential(sim.board, ctx.lookahead);
@@ -103,6 +113,7 @@ std::vector<Node> expandNode(
             parent.mainChain, candidate.mainChain, sim.chains);
         candidate.mainChainScore += mainChainCleanupScore(
             parent.mainChain, candidate.mainChain, sim.chains);
+        candidate.score = parent.score + local + candidate.mainChainScore;
 
         // Physical construction policy: keep a single expandable spine,
         // preserve workspace, and avoid drifting the active trigger to an
@@ -113,7 +124,6 @@ std::vector<Node> expandNode(
         candidate.prematureRisk = prematureMainChainTriggerRisk(
             sim.board, candidate.mainChain);
 
-        local += candidate.mainChainScore;
 
         // Construction geometry is intentionally a final-stage discriminator.
         // Injecting it into every accumulated score makes a shallow geometric
@@ -343,6 +353,41 @@ Move chooseRoot(
         }
 
         if (next.empty()) return {-1, 0, false};
+
+        // Transposition reduction: different move orders can converge to the
+        // same board at a given depth. Keep the best-scoring representative.
+        // The current depth uses the same future queue for every node, so the
+        // board itself is a sufficient state key here. This both removes
+        // duplicate work and preserves the strongest root decision.
+        auto boardHash = [](const Board& b) {
+            std::uint64_t h = 1469598103934665603ULL;
+            for (int y = 0; y < BOARD_HEIGHT; ++y) {
+                for (int x = 0; x < BOARD_WIDTH; ++x) {
+                    h ^= static_cast<std::uint64_t>(static_cast<int>(b.get(x, y)) + 1);
+                    h *= 1099511628211ULL;
+                }
+            }
+            return h;
+        };
+
+        std::unordered_map<std::uint64_t, std::size_t> transpositions;
+        transpositions.reserve(next.size());
+        std::vector<Node> uniqueNext;
+        uniqueNext.reserve(next.size());
+        for (auto& candidate : next) {
+            const auto key = boardHash(candidate.board);
+            const auto it = transpositions.find(key);
+            if (it == transpositions.end()) {
+                transpositions.emplace(key, uniqueNext.size());
+                uniqueNext.push_back(std::move(candidate));
+            } else {
+                Node& existing = uniqueNext[it->second];
+                if (betterForBeam(candidate, existing)) {
+                    existing = std::move(candidate);
+                }
+            }
+        }
+        next.swap(uniqueNext);
 
         pruneBeam(next, beamWidth);
 
