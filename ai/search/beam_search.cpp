@@ -6,6 +6,7 @@
 #include "../evaluation/long_chain_potential.h"
 #include "../evaluation/main_chain.h"
 #include "../evaluation/debug_log.h"
+#include "../evaluation/virtual_chain_potential.h"
 #include "../simulation/simulator.h"
 
 #include <algorithm>
@@ -36,6 +37,9 @@ struct Node {
     double mainChainScore = 0.0;
     double construction = 0.0;
     double prematureRisk = 0.0;
+    double virtualPotential = 0.0;
+    VirtualChainFeatures virtualFeatures;
+    bool hasVirtual = false;
     bool gameOver = false;
 };
 
@@ -47,18 +51,32 @@ constexpr double kDeathPenalty = 250000.0;
 // long chain dominate small scoring differences, while the static evaluator
 // remains responsible for constructing the chain before it fires.
 double chainReward(int chains) {
+    // A smooth threshold curve keeps 7-9 from becoming the default cash-out,
+    // while leaving enough score headroom for the latent virtual-fire signal
+    // to influence construction before the real chain occurs.
+    static constexpr double rewards[] = {
+        0.0,      // 0
+        -18000.0, // 1
+        -36000.0, // 2
+        -54000.0, // 3
+        5000.0,   // 4
+        18000.0,  // 5
+        45000.0,  // 6
+        85000.0,  // 7
+        145000.0, // 8
+        235000.0, // 9
+        360000.0, // 10
+        525000.0, // 11
+        740000.0, // 12
+        1000000.0,// 13
+        1300000.0,// 14
+        1650000.0 // 15
+    };
     if (chains <= 0) return 0.0;
-
-    // Do not let the search repeatedly cash out 2-3 chains.  Small chains are
-    // treated as destructive early firing; the useful reward starts at 5.
-    if (chains <= 3) {
-        const double c = static_cast<double>(chains);
-        return -120000.0 * c * c;
-    }
-    if (chains == 4) return 25000.0;
-
+    if (chains < static_cast<int>(std::size(rewards))) return rewards[chains];
     const double c = static_cast<double>(chains);
-    return 20000.0 * c * c * c * c;
+    return rewards[15] + (c - 15.0) * 400000.0 +
+           std::max(0.0, c - 15.0) * std::max(0.0, c - 15.0) * 15000.0;
 }
 
 std::vector<Node> expandNode(
@@ -106,43 +124,16 @@ std::vector<Node> expandNode(
         candidate.board = sim.board;
         candidate.root = parent.root.valid ? parent.root : move;
         candidate.maxChain = std::max(parent.maxChain, sim.chains);
-        candidate.triggerRoute = std::max(parent.triggerRoute, triggerRouteLength(sim.board));
-        candidate.longPotential = longChainPotential(sim.board, ctx.lookahead);
-        candidate.mainChain = analyzeMainChain(sim.board);
-        candidate.mainChainScore = mainChainContinuityScore(
-            parent.mainChain, candidate.mainChain, sim.chains);
-        candidate.mainChainScore += mainChainCleanupScore(
-            parent.mainChain, candidate.mainChain, sim.chains);
-        candidate.score = parent.score + local + candidate.mainChainScore;
-
-        // Physical construction policy: keep a single expandable spine,
-        // preserve workspace, and avoid drifting the active trigger to an
-        // edge unless the geometry is otherwise useful.  These terms are
-        // deliberately softer than a real chain reward.
-        candidate.construction = mainChainConstructionScore(
-            sim.board, candidate.mainChain);
-        candidate.prematureRisk = prematureMainChainTriggerRisk(
-            sim.board, candidate.mainChain);
-
-
-        // Construction geometry is intentionally a final-stage discriminator.
-        // Injecting it into every accumulated score makes a shallow geometric
-        // advantage compound across depth and can drown out real chain gains.
-        // The final utility below uses it only after the chain/route signals.
-        // This preserves the proven search behavior while still preferring a
-        // spacious, central, non-cash-out construction when candidates are
-        // otherwise close.
-
-        // Structural guidance is deliberately strongest while the branch is
-        // quiet.  Once a real chain has fired, the normal chain objective and
-        // simulator state take priority.
-        if (sim.chains == 0) {
-            // Prepared-group analysis is cheap enough to use during beam
-            // expansion.  Full post-trigger tail simulation is deliberately
-            // deferred until the final beam so it cannot multiply the search
-            // cost at every child.
-            candidate.structure += preparedGroupScore(sim.board) * 0.10;
-        }
+        // Route/main-chain analysis is intentionally deferred to the terminal
+        // beam. Those routines perform hypothetical chain resolutions and are
+        // too expensive to run for every child. The fast static evaluator and
+        // real chain reward remain on the hot path.
+        candidate.triggerRoute = parent.triggerRoute;
+        candidate.longPotential = 0.0;
+        candidate.mainChainScore = 0.0;
+        candidate.construction = 0.0;
+        candidate.prematureRisk = 0.0;
+        candidate.score = parent.score + local;
         candidate.gameOver = deathMove;
 
         if (deathMove) death.push_back(std::move(candidate));
@@ -166,70 +157,54 @@ bool betterForBeam(const Node& a, const Node& b) {
 void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
     if (static_cast<int>(candidates.size()) <= beamWidth) return;
 
-    // The ordinary evaluator remains the main ranking signal.  In addition,
-    // preserve a small route elite so that a quiet A->B->C trigger structure
-    // is not discarded merely because it scores less than a short-term shape.
     std::sort(candidates.begin(), candidates.end(), betterForBeam);
-
-    const int routeSlots = std::max(1, beamWidth / 4);
-    const int potentialSlots = std::max(1, beamWidth / 4);
     std::vector<Node> selected;
     selected.reserve(static_cast<std::size_t>(beamWidth));
 
-    auto addIfNew = [&](const Node& node) {
+    // Keep a small root-action diversity reserve. This prevents one attractive
+    // first move from occupying the entire beam before the more informative
+    // virtual-fire rerank is applied at later layers.
+    const int diversitySlots = std::min(6, beamWidth);
+    bool seenRoot[BOARD_WIDTH][4]{};
+    for (const auto& node : candidates) {
+        if (static_cast<int>(selected.size()) >= diversitySlots) break;
+        if (node.root.valid && node.root.x >= 0 && node.root.x < BOARD_WIDTH &&
+            node.root.rotation >= 0 && node.root.rotation < 4 &&
+            !seenRoot[node.root.x][node.root.rotation]) {
+            seenRoot[node.root.x][node.root.rotation] = true;
+            selected.push_back(node);
+        }
+    }
+    for (const auto& node : candidates) {
+        if (static_cast<int>(selected.size()) >= beamWidth) break;
+        bool duplicate = false;
         for (const auto& existing : selected) {
             if (existing.root.x == node.root.x &&
                 existing.root.rotation == node.root.rotation &&
-                existing.triggerRoute == node.triggerRoute &&
-                existing.maxChain == node.maxChain &&
-                existing.score == node.score) {
-                return;
+                existing.score == node.score &&
+                existing.maxChain == node.maxChain) {
+                duplicate = true;
+                break;
             }
         }
-        selected.push_back(node);
-    };
-
-    auto routeRank = candidates;
-    std::sort(routeRank.begin(), routeRank.end(), [](const Node& a, const Node& b) {
-        if (a.triggerRoute != b.triggerRoute) return a.triggerRoute > b.triggerRoute;
-        if (a.maxChain != b.maxChain) return a.maxChain > b.maxChain;
-        return a.score > b.score;
-    });
-    for (int i = 0; i < routeSlots && i < static_cast<int>(routeRank.size()); ++i) {
-        if (routeRank[static_cast<std::size_t>(i)].triggerRoute >= 2) {
-            addIfNew(routeRank[static_cast<std::size_t>(i)]);
-        }
+        if (!duplicate) selected.push_back(node);
     }
-
-    auto potentialRank = candidates;
-    std::sort(potentialRank.begin(), potentialRank.end(), [](const Node& a, const Node& b) {
-        if (a.longPotential != b.longPotential) return a.longPotential > b.longPotential;
-        if (a.triggerRoute != b.triggerRoute) return a.triggerRoute > b.triggerRoute;
-        return a.score > b.score;
-    });
-    for (int i = 0; i < potentialSlots && i < static_cast<int>(potentialRank.size()); ++i) {
-        addIfNew(potentialRank[static_cast<std::size_t>(i)]);
-    }
-
-    auto structureRank = candidates;
-    std::sort(structureRank.begin(), structureRank.end(), [](const Node& a, const Node& b) {
-        if (a.structure != b.structure) return a.structure > b.structure;
-        if (a.triggerRoute != b.triggerRoute) return a.triggerRoute > b.triggerRoute;
-        return a.score > b.score;
-    });
-    const int structureSlots = std::max(1, beamWidth / 6);
-    for (int i = 0; i < structureSlots && i < static_cast<int>(structureRank.size()); ++i) {
-        if (structureRank[static_cast<std::size_t>(i)].structure > 0.0) {
-            addIfNew(structureRank[static_cast<std::size_t>(i)]);
-        }
-    }
-
-    for (const auto& node : candidates) {
-        if (static_cast<int>(selected.size()) >= beamWidth) break;
-        addIfNew(node);
-    }
-
     candidates.swap(selected);
+}
+
+void applyVirtualRerank(std::vector<Node>& beam, int topM) {
+    if (beam.empty() || topM <= 0) return;
+    std::sort(beam.begin(), beam.end(), betterForBeam);
+    const int n = std::min(topM, static_cast<int>(beam.size()));
+    for (int i = 0; i < n; ++i) {
+        Node& node = beam[static_cast<std::size_t>(i)];
+        if (!node.hasVirtual) {
+            node.virtualFeatures = analyzeVirtualChainPotential(node.board);
+            node.virtualPotential = virtualChainPotentialScore(
+                node.virtualFeatures, node.board);
+            node.hasVirtual = true;
+        }
+    }
 }
 
 
@@ -274,6 +249,9 @@ void debugBeamSummary(const std::vector<Node>& beam, int depth, int beamWidth) {
             << " maxChain=" << x.maxChain
             << " route=" << x.triggerRoute
             << " longPotential=" << x.longPotential
+            << " virtual=" << x.virtualPotential
+            << " vBest=" << x.virtualFeatures.bestChain
+            << " vTop3=" << x.virtualFeatures.top3ChainSum
             << " structure=" << x.structure
             << " mainChain=" << x.mainChain.length()
             << " mainContinuity=" << x.mainChainScore
@@ -283,15 +261,16 @@ void debugBeamSummary(const std::vector<Node>& beam, int depth, int beamWidth) {
 }
 
 double finalUtility(const Node& n) {
-    // Keep actual chain count important, but no longer make it an absolute
-    // lexicographic gate. A quiet 5-chain construction with much higher latent
-    // potential can now beat a prematurely-cashed 7-chain.
-    return n.score + static_cast<double>(n.maxChain) * 70000.0
-         + n.longPotential * 5000.0
-         + static_cast<double>(n.mainChain.length()) * 18000.0
-         + n.mainChainScore * 0.75
-         + n.construction * 0.08
-         - n.prematureRisk * 0.08;
+    // Actual chain count remains the primary realised objective. Virtual-fire
+    // potential is the main latent objective and is deliberately strong enough
+    // to prefer a board that can plausibly reach 10-13 over a shallow 7-9
+    // cash-out, while never pretending the virtual future is guaranteed.
+    return n.score + static_cast<double>(n.maxChain) * 25000.0
+         + n.virtualPotential * 1.0
+         + static_cast<double>(n.mainChain.length()) * 16000.0
+         + n.mainChainScore * 0.50
+         + n.construction * 0.06
+         - n.prematureRisk * 0.06;
 }
 
 bool betterFinal(const Node& a, const Node& b) {
@@ -323,6 +302,13 @@ Move chooseRoot(
         maxDepth,
         static_cast<int>(pieces.size())
     );
+
+    // Very wide beams amplify small heuristic errors on this lightweight
+    // evaluator. Keep the user-configured beam value intact for the API, but
+    // cap the active construction frontier at 12; this is close to the
+    // high-performing v13-style search budget and prevents beam=24/48 from
+    // spending most of its work on correlated low-quality states.
+    const int activeBeamWidth = std::min(beamWidth, 12);
     if (horizon <= 0) return {-1, 0, false};
 
     // The root is expanded exactly once, then the same beam is propagated
@@ -337,7 +323,7 @@ Move chooseRoot(
         std::vector<Node> next;
         // At most beamWidth * 24 legal placements on a standard 6-column
         // board. Reserve generously without allocating per child later.
-        next.reserve(static_cast<std::size_t>(beamWidth) * 24U);
+        next.reserve(static_cast<std::size_t>(activeBeamWidth) * 24U);
 
         for (const Node& node : beam) {
             std::vector<PuyoPair> remainingPieces;
@@ -353,6 +339,17 @@ Move chooseRoot(
         }
 
         if (next.empty()) return {-1, 0, false};
+
+        // Root-layer refinement is especially important: without it a good
+        // first move can be discarded before the virtual-fire signal ever
+        // sees the board. Probe a moderate prefix here; deeper layers use a
+        // smaller top-M budget.
+        if (depth == 0) {
+            applyVirtualRerank(next, std::min(12, activeBeamWidth));
+            std::sort(next.begin(), next.end(), [](const Node& a, const Node& b) {
+                return finalUtility(a) > finalUtility(b);
+            });
+        }
 
         // Transposition reduction: different move orders can converge to the
         // same board at a given depth. Keep the best-scoring representative.
@@ -389,10 +386,23 @@ Move chooseRoot(
         }
         next.swap(uniqueNext);
 
-        pruneBeam(next, beamWidth);
+        pruneBeam(next, activeBeamWidth);
 
         beam.swap(next);
-        debugBeamSummary(beam, depth + 1, beamWidth);
+
+        // v13-style mid-search refinement: expensive virtual-fire probes are
+        // applied only to the strongest few states, not to every expanded
+        // child. At depth 2+ this recovers much of the information value of a
+        // full virtual evaluator while keeping the normal beam practical.
+        if (depth + 1 >= 2) {
+            applyVirtualRerank(beam, std::min(8, activeBeamWidth));
+            std::sort(beam.begin(), beam.end(), [](const Node& a, const Node& b) {
+                return finalUtility(a) > finalUtility(b);
+            });
+            if (static_cast<int>(beam.size()) > activeBeamWidth) beam.resize(static_cast<std::size_t>(activeBeamWidth));
+        }
+
+        debugBeamSummary(beam, depth + 1, activeBeamWidth);
 
         // Once every surviving branch is a game-over placement, there is no
         // future piece to search. Keep the best one and finish.
@@ -406,15 +416,24 @@ Move chooseRoot(
         if (allDead) break;
     }
 
-    // Expensive tail analysis is performed only for the final beam.  This
-    // compares the pre-trigger board with the real simulator's post-trigger
-    // chain and rewards latent 3+1 / 2+2 tail material without making every
-    // beam child pay for a full chain simulation.
-    for (auto& node : beam) {
-        if (node.maxChain == 0) {
-            node.structure += postTriggerTailScore(node.board) * 0.08;
-            node.structure -= prematureTriggerRisk(node.board) * 0.05;
-        }
+    // Final refinement: evaluate the whole surviving beam with the expensive
+    // virtual-fire probe, then apply the user's sequential trigger-transfer
+    // analysis only to the strongest virtual candidates.
+    applyVirtualRerank(beam, std::min(18, static_cast<int>(beam.size())));
+    std::sort(beam.begin(), beam.end(), [](const Node& a, const Node& b) {
+        return finalUtility(a) > finalUtility(b);
+    });
+    const int structuralM = std::min(6, static_cast<int>(beam.size()));
+    for (int i = 0; i < structuralM; ++i) {
+        Node& node = beam[static_cast<std::size_t>(i)];
+        node.triggerRoute = triggerRouteLength(node.board);
+        node.longPotential = longChainPotential(node.board, {});
+        node.mainChain = analyzeMainChain(node.board);
+        node.construction = mainChainConstructionScore(node.board, node.mainChain);
+        node.prematureRisk = prematureMainChainTriggerRisk(node.board, node.mainChain);
+        node.structure += postTriggerTailScore(node.board) * 0.05;
+        node.structure -= prematureTriggerRisk(node.board) * 0.03;
+        node.mainChainScore = mainChainConstructionScore(node.board, node.mainChain) * 0.05;
     }
 
     const auto best = std::max_element(
