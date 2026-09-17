@@ -10,6 +10,7 @@ AI_SOURCES := \
 	ai/evaluation/evaluation.cpp \
 	ai/evaluation/trigger_route.cpp \
 	ai/evaluation/long_chain_potential.cpp \
+	ai/evaluation/virtual_chain_potential.cpp \
 	ai/evaluation/main_chain.cpp \
 	ai/evaluation/forms.cpp \
 	ai/evaluation/debug_log.cpp \
@@ -32,9 +33,9 @@ test:
 		-o /tmp/puyoai_construction_test
 	/tmp/puyoai_construction_test
 	$(CXX) $(CXXFLAGS) $(INCLUDES) \
-		tests/test_geometry_policy.cpp $(AI_SOURCES) \
-		-o /tmp/puyoai_geometry_test
-	/tmp/puyoai_geometry_test
+		tests/test_virtual_chain_potential.cpp $(AI_SOURCES) \
+		-o /tmp/puyoai_virtual_test
+	/tmp/puyoai_virtual_test
 
 benchmark:
 	$(CXX) $(CXXFLAGS) $(INCLUDES) \
@@ -43,4 +44,4 @@ benchmark:
 	/tmp/puyoai_benchmark 4 60 20260908 2 4
 
 clean:
-	rm -f /tmp/puyoai_test /tmp/puyoai_construction_test /tmp/puyoai_geometry_test /tmp/puyoai_benchmark
+	rm -f /tmp/puyoai_test /tmp/puyoai_construction_test /tmp/puyoai_virtual_test /tmp/puyoai_benchmark
