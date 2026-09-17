@@ -98,76 +98,6 @@ double getWell(const std::array<int, BOARD_WIDTH>& h) {
 
 
 
-double getChainPotential(const Board& board) {
-    // Measures how easily existing 2/3-puyo groups can be extended without
-    // immediately firing unrelated groups.  A size-3 group is much more
-    // valuable because one adjacent puyo can trigger it.
-    bool visited[BOARD_WIDTH][VISIBLE_HEIGHT]{};
-    double potential = 0.0;
-
-    for (int y = 0; y < VISIBLE_HEIGHT; ++y) {
-        for (int x = 0; x < BOARD_WIDTH; ++x) {
-            if (visited[x][y] || !isColor(board.get(x, y))) continue;
-
-            const Cell c = board.get(x, y);
-            std::vector<std::pair<int, int>> cells;
-            std::vector<std::pair<int, int>> stack{{x, y}};
-            visited[x][y] = true;
-
-            while (!stack.empty()) {
-                const auto [cx, cy] = stack.back();
-                stack.pop_back();
-                cells.push_back({cx, cy});
-
-                constexpr int dx[4] = {1, -1, 0, 0};
-                constexpr int dy[4] = {0, 0, 1, -1};
-                for (int d = 0; d < 4; ++d) {
-                    const int nx = cx + dx[d];
-                    const int ny = cy + dy[d];
-                    if (nx < 0 || nx >= BOARD_WIDTH ||
-                        ny < 0 || ny >= VISIBLE_HEIGHT ||
-                        visited[nx][ny]) continue;
-                    if (board.get(nx, ny) == c) {
-                        visited[nx][ny] = true;
-                        stack.push_back({nx, ny});
-                    }
-                }
-            }
-
-            const int n = static_cast<int>(cells.size());
-            if (n < 2 || n > 3) continue;
-
-            bool extension[BOARD_WIDTH][VISIBLE_HEIGHT]{};
-            int extensionCount = 0;
-            for (const auto& [cx, cy] : cells) {
-                constexpr int dx[4] = {1, -1, 0, 0};
-                constexpr int dy[4] = {0, 0, 1, -1};
-                for (int d = 0; d < 4; ++d) {
-                    const int nx = cx + dx[d];
-                    const int ny = cy + dy[d];
-                    if (nx < 0 || nx >= BOARD_WIDTH ||
-                        ny < 0 || ny >= VISIBLE_HEIGHT) continue;
-                    if (board.get(nx, ny) == Cell::Empty && !extension[nx][ny]) {
-                        extension[nx][ny] = true;
-                        ++extensionCount;
-                    }
-                }
-            }
-
-            // A 3-group with many possible attachment cells is a strong
-            // candidate for a future trigger.  A 2-group is useful but less
-            // urgent.  The cap prevents wide-open flat boards from dominating.
-            if (n == 3) {
-                potential += 6.0 + std::min(extensionCount, 6) * 0.75;
-            } else {
-                potential += 2.0 + std::min(extensionCount, 6) * 0.25;
-            }
-        }
-    }
-
-    return potential;
-}
-
 double getBump(const std::array<int, BOARD_WIDTH>& h) {
     double bump = 0.0;
 
@@ -198,6 +128,7 @@ struct ConstructionMetrics {
     double centralPeak = 0.0;
     double edgeDeadEnd = 0.0;
     double futureChainSpace = 0.0;
+    double exactTripleCount = 0.0;
 };
 
 
@@ -291,9 +222,36 @@ ConstructionMetrics getConstructionMetrics(const Board& board) {
     for (const auto& g : groups) {
         const int n = g.size;
         if (n == 3) {
+            m.exactTripleCount += 1.0;
             const int slots = reachableSlotsForGroup(board, g);
             if (slots >= 1) m.unit4 += 1.0;
             if (slots >= 2) m.unit5 += 1.0;
+
+            // Fast handoff approximation. The previous implementation
+            // removed each triple and ran a full group analysis after gravity
+            // for every triple. That duplicated the most expensive operation
+            // in the evaluator. Reachable attachment slots are a conservative
+            // proxy for whether this anchor can accept the next dependency.
+            if (slots >= 1) m.handoffPotential += 1.5;
+            if (slots >= 2) m.handoffPotential += 0.75;
+
+            int gx = 0;
+            for (int i = 0; i < g.cellCount; ++i) gx += g.cells[i].first;
+            gx = static_cast<int>(std::lround(static_cast<double>(gx) / g.cellCount));
+            if (gx == 0 || gx == BOARD_WIDTH - 1) {
+                bool escape = false;
+                for (int i = 0; i < g.cellCount; ++i) {
+                    const auto [x, y] = g.cells[i];
+                    for (int dx : {-1, 1}) {
+                        const int nx = x + dx;
+                        if (nx >= 0 && nx < BOARD_WIDTH &&
+                            board.get(nx, y) == Cell::Empty) {
+                            escape = true;
+                        }
+                    }
+                }
+                if (!escape) m.edgeDeadEnd += 1.0;
+            }
         } else if (n > 5) {
             m.oversized += static_cast<double>(n - 5);
         }
@@ -385,63 +343,8 @@ ConstructionMetrics getConstructionMetrics(const Board& board) {
 
     m.centralPeak = getCentralPeak(h);
 
-    // "Handoff" measures the human-style single-spine transfer:
-    // a prepared exact-three anchor can be fired and expose exactly one
-    // meaningful next wave. We intentionally do not reward parallel waves.
-    // This is a structural feature, not a substitute for the simulator's
-    // actual chain count.
-    for (const auto& g : groups) {
-        if (g.size != 3) continue;
-        Board after = board;
-        for (int i=0; i<g.cellCount; ++i) {
-            auto [x,y] = g.cells[i];
-            after.set(x,y,Cell::Empty);
-        }
-        for (int x=0; x<BOARD_WIDTH; ++x) {
-            int write=0;
-            for (int y=0; y<BOARD_HEIGHT; ++y) {
-                const Cell c=after.get(x,y);
-                if (c != Cell::Empty) after.set(x,write++,c);
-            }
-            while (write<BOARD_HEIGHT) after.set(x,write++,Cell::Empty);
-        }
-
-        const auto nextGroups = colorGroups(after);
-        int firing=0;
-        int largest=0;
-        for (const auto& ng : nextGroups) {
-            if (ng.size >= 4) {
-                ++firing;
-                largest = std::max(largest, ng.size);
-            }
-        }
-        if (firing == 1) {
-            m.handoffPotential += 2.0;
-            if (largest == 4 || largest == 5) m.handoffPotential += 1.5;
-        } else if (firing > 1) {
-            m.handoffPotential -= std::min(2.0, 0.35 * (firing - 1));
-        }
-
-        // An exact-three trigger at the wall is only useful if it still has
-        // at least one neighboring landing direction. Otherwise it tends to
-        // become the forced final trigger.
-        int gx=0;
-        for (int i=0; i<g.cellCount; ++i) gx += g.cells[i].first;
-        gx = static_cast<int>(std::lround(static_cast<double>(gx) / g.cellCount));
-        if (gx == 0 || gx == BOARD_WIDTH-1) {
-            bool escape=false;
-            for (int i=0; i<g.cellCount; ++i) {
-                const auto [x,y]=g.cells[i];
-                for (int dx : {-1,1}) {
-                    const int nx=x+dx;
-                    if (nx>=0 && nx<BOARD_WIDTH && board.get(nx,y)==Cell::Empty) {
-                        escape=true;
-                    }
-                }
-            }
-            if (!escape) m.edgeDeadEnd += 1.0;
-        }
-    }
+    // Handoff/edge-dead-end signals were collected during the group pass
+    // above so they remain O(board) rather than O(triples * board).
 
     // Future chain space: count landing cells near the occupied surface while
     // excluding dangerous top rows. This rewards usable construction room,
@@ -509,9 +412,8 @@ Features extractStaticFeatures(const Board& board) {
     f.side = std::max(left, right) - h[2];
 
     f.form = bestHumanFormScore(board);
-    f.chainPotential = getChainPotential(board);
-
     const ConstructionMetrics cm = getConstructionMetrics(board);
+    f.chainPotential = cm.unit4 * 6.0 + cm.unit5 * 2.0;
     f.chainUnit4 = cm.unit4;
     f.chainUnit5 = cm.unit5;
     f.oversizedUnit = cm.oversized;
@@ -526,6 +428,7 @@ Features extractStaticFeatures(const Board& board) {
     f.centralPeak = cm.centralPeak;
     f.edgeDeadEnd = cm.edgeDeadEnd;
     f.futureChainSpace = cm.futureChainSpace;
+    f.exactTripleCount = cm.exactTripleCount;
 
     return f;
 }
