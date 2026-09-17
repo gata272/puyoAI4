@@ -44,9 +44,10 @@ jobs:
             ai/simulation/board.cpp \
             ai/simulation/simulator.cpp \
             ai/evaluation/features.cpp \
-            ai/evaluation/weights.cpp \
             ai/evaluation/evaluation.cpp \
+            ai/evaluation/weights.cpp \
             ai/evaluation/trigger_route.cpp \
+            ai/evaluation/virtual_chain_potential.cpp \
             ai/evaluation/long_chain_potential.cpp \
             ai/evaluation/main_chain.cpp \
             ai/evaluation/forms.cpp \
@@ -63,6 +64,7 @@ jobs:
             -O2 \
             tests/test_trigger_structure.cpp \
             ai/evaluation/trigger_route.cpp \
+            ai/evaluation/virtual_chain_potential.cpp \
             ai/evaluation/long_chain_potential.cpp \
             ai/evaluation/main_chain.cpp \
             ai/evaluation/features.cpp \
@@ -73,6 +75,21 @@ jobs:
             -o trigger_structure_test
 
           ./trigger_structure_test
+
+      - name: Virtual-chain potential regression test
+        run: |
+          g++ \
+            -std=c++20 \
+            -O2 \
+            tests/test_virtual_chain_potential.cpp \
+            ai/evaluation/virtual_chain_potential.cpp \
+            ai/search/move_generator.cpp \
+            ai/simulation/board.cpp \
+            ai/simulation/simulator.cpp \
+            -I. \
+            -o virtual_chain_potential_test
+
+          ./virtual_chain_potential_test
 
       - name: Main-chain policy regression test
         run: |
@@ -86,20 +103,6 @@ jobs:
             -o main_chain_test
 
           ./main_chain_test
-
-      - name: Chain-dependency regression test
-        run: |
-          g++ \
-            -std=c++20 \
-            -O2 \
-            tests/test_chain_dependency.cpp \
-            ai/evaluation/trigger_route.cpp \
-            ai/simulation/board.cpp \
-            ai/simulation/simulator.cpp \
-            -I. \
-            -o chain_dependency_test
-
-          ./chain_dependency_test
 
       - name: Weight API regression test
         run: |
@@ -128,6 +131,7 @@ jobs:
             ai/evaluation/evaluation.cpp \
             ai/evaluation/weights.cpp \
             ai/evaluation/trigger_route.cpp \
+            ai/evaluation/virtual_chain_potential.cpp \
             ai/evaluation/long_chain_potential.cpp \
             ai/evaluation/main_chain.cpp \
             ai/evaluation/forms.cpp \
@@ -163,10 +167,11 @@ jobs:
             --exclude='_site/' \
             --exclude='native_test' \
             --exclude='trigger_structure_test' \
-            --exclude='chain_dependency_test' \
             --exclude='long_chain_potential_test' \
-            --exclude='main_chain_test' \
+            --exclude='virtual_chain_potential_test' \
             --exclude='weight_api_test' \
+            --exclude='debug_log_test' \
+            --exclude='main_chain_test' \
             ./ _site/
 
           cp puyoAI_wasm.mjs _site/puyoAI_wasm.mjs
