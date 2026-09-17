@@ -24,9 +24,9 @@ constexpr int kMaxGames = 5000;
 constexpr int kMinTurns = 1;
 constexpr int kMaxTurns = 500;
 constexpr int kMinDepth = 1;
-constexpr int kMaxDepth = 10;
+constexpr int kMaxDepth = 50;
 constexpr int kMinBeam = 1;
-constexpr int kMaxBeam = 128;
+constexpr int kMaxBeam = 500;
 
 struct GameStats {
     int maxChain = 0;
