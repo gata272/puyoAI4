@@ -38,7 +38,7 @@ test:
 	/tmp/puyoai_virtual_test
 
 benchmark-test:
-	$(CXX) -std=c++20 -O0 -Wall -Wextra -pedantic $(INCLUDES) \
+	$(CXX) -std=c++20 -O2 -Wall -Wextra -pedantic $(INCLUDES) \
 		tests/test_chain_benchmark.cpp $(BENCHMARK_SOURCES) \
 		-o /tmp/puyoai_benchmark_test
 	/tmp/puyoai_benchmark_test

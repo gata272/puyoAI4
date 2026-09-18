@@ -29,6 +29,7 @@ self.onmessage = async (event) => {
 
     try {
         self.postMessage({ type: 'started' });
+        console.log('[Benchmark] started');
         const resultJson = runBenchmark(
             msg.games | 0,
             msg.turns | 0,

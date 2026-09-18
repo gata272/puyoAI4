@@ -87,6 +87,20 @@
         return parts.length ? parts.join(' / ') : 'なし';
     }
 
+
+    function formatDeathDiagnostics(result) {
+        const safe = result.averageSafeMovesBeforeDeath;
+        const counts = result.diagnosticCounts;
+        if (!Array.isArray(safe) || !Array.isArray(counts)) return '';
+        const parts = [];
+        for (let i = 0; i < safe.length; i += 1) {
+            if (Number(counts[i] || 0) <= 0) continue;
+            parts.push(`死亡-${i}手前: ${Number(safe[i]).toFixed(1)}手`);
+        }
+        if (!parts.length) return '';
+        return `<tr><th>死亡前の平均安全手数</th><td>${parts.join(' / ')}</td></tr>`;
+    }
+
     function renderResult(result) {
         const el = $('benchmark-result');
         if (!el) return;
@@ -107,6 +121,7 @@
                     <tr><th>平均生存ターン</th><td>${result.averageTurns.toFixed(1)} / ${result.turns}</td></tr>
                     <tr><th>ゲームオーバー</th><td>${result.gamesOver} / ${result.games}</td></tr>
                     <tr><th>ゲームオーバー原因</th><td>${formatGameOverReasons(result.gameOverReasons)}</td></tr>
+                    ${formatDeathDiagnostics(result)}
                     <tr><th>平均思考時間</th><td>${result.averageThinkMs.toFixed(2)} ms / 手</td></tr>
                     <tr><th>測定時間</th><td>${(result.totalWallMs / 1000).toFixed(2)} s</td></tr>
                     <tr><th>設定</th><td>depth ${result.depth} / beam ${result.beamWidth}</td></tr>
@@ -131,6 +146,14 @@
             if (msg.type === 'started') {
                 setRunning(true);
                 setStatus('同一ツモ列で測定しています…');
+                return;
+            }
+            if (msg.type === 'progress') {
+                console.log(msg.message);
+                const match = String(msg.message || '').match(/Game (\d+)\/(\d+)/);
+                if (match) {
+                    setStatus(`ベンチマーク進行中… ${match[1]} / ${match[2]} ゲーム`);
+                }
                 return;
             }
             if (msg.type === 'result') {
