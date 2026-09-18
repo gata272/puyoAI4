@@ -116,6 +116,33 @@ jobs:
 
           ./weight_api_test
 
+      - name: Chain benchmark regression test
+        run: |
+          g++ \
+            -std=c++20 \
+            -O2 \
+            tests/test_chain_benchmark.cpp \
+            ai/benchmark/chain_benchmark.cpp \
+            ai/ai.cpp \
+            ai/gtr/gtr_ai.cpp \
+            ai/search/move_generator.cpp \
+            ai/search/beam_search.cpp \
+            ai/simulation/board.cpp \
+            ai/simulation/simulator.cpp \
+            ai/evaluation/features.cpp \
+            ai/evaluation/evaluation.cpp \
+            ai/evaluation/weights.cpp \
+            ai/evaluation/trigger_route.cpp \
+            ai/evaluation/virtual_chain_potential.cpp \
+            ai/evaluation/long_chain_potential.cpp \
+            ai/evaluation/main_chain.cpp \
+            ai/evaluation/forms.cpp \
+            ai/evaluation/debug_log.cpp \
+            -I. \
+            -o chain_benchmark_test
+
+          ./chain_benchmark_test
+
       - name: Build WASM
         run: |
           em++ \
@@ -172,6 +199,11 @@ jobs:
             --exclude='weight_api_test' \
             --exclude='debug_log_test' \
             --exclude='main_chain_test' \
+            --exclude='chain_benchmark_test' \
+            --exclude='puyoai_test' \
+            --exclude='puyoai_construction_test' \
+            --exclude='puyoai_virtual_test' \
+            --exclude='puyoai_benchmark_test' \
             ./ _site/
 
           cp puyoAI_wasm.mjs _site/puyoAI_wasm.mjs
