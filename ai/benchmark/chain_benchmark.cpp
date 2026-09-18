@@ -2,11 +2,14 @@
 
 #include "../ai.h"
 #include "../simulation/simulator.h"
+#include "../search/move_generator.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <iomanip>
+#include <iostream>
 #include <limits>
 #include <random>
 #include <sstream>
@@ -14,6 +17,10 @@
 #include <cstdint>
 #include <numeric>
 #include <vector>
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+#endif
 
 namespace puyo {
 namespace {
@@ -28,11 +35,38 @@ constexpr int kMaxDepth = 50;
 constexpr int kMinBeam = 1;
 constexpr int kMaxBeam = 500;
 
+enum class GameOverReason {
+    None,
+    InvalidMove,
+    NoGeometricMove,
+    NoSafeMove,
+    SelectedDeathWithSafeMove,
+    Other
+};
+
+const char* gameOverReasonName(GameOverReason reason) {
+    switch (reason) {
+        case GameOverReason::None: return "none";
+        case GameOverReason::InvalidMove: return "invalid_move";
+        case GameOverReason::NoGeometricMove: return "no_geometric_move";
+        case GameOverReason::NoSafeMove: return "no_safe_move";
+        case GameOverReason::SelectedDeathWithSafeMove: return "selected_death_with_safe_move";
+        case GameOverReason::Other: return "other";
+    }
+    return "other";
+}
+
 struct GameStats {
     int maxChain = 0;
     int score = 0;
     int turns = 0;
     bool gameOver = false;
+    GameOverReason gameOverReason = GameOverReason::None;
+    int maxHeightAtEnd = 0;
+    int dangerColumnHeightAtEnd = 0;
+    int occupiedAtEnd = 0;
+    int geometricMovesAtEnd = 0;
+    int safeMovesAtEnd = 0;
 };
 
 int clampInt(int value, int lo, int hi) {
@@ -62,6 +96,15 @@ std::vector<PuyoPair> makeQueue(int seed, int game, int turns) {
         queue.push_back({color(rng), color(rng)});
     }
     return queue;
+}
+
+
+void printProgress(const std::string& message) {
+#ifdef __EMSCRIPTEN__
+    emscripten_log(EM_LOG_CONSOLE, "%s", message.c_str());
+#else
+    std::cerr << message << std::endl;
+#endif
 }
 
 double percentile(std::vector<int> values, double p) {
@@ -104,6 +147,7 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
     int totalMoves = 0;
     int gamesOver = 0;
     int globalMaxChain = 0;
+    std::array<int, 6> gameOverReasons{};
 
     const auto benchmarkStart = std::chrono::steady_clock::now();
 
@@ -140,12 +184,36 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
 
             if (!move.valid) {
                 stats.gameOver = true;
+                stats.gameOverReason = GameOverReason::InvalidMove;
+                break;
+            }
+
+            const auto geometricMoves = generateLegalMoves(board, pieces[0]);
+            if (geometricMoves.empty()) {
+                stats.gameOver = true;
+                stats.gameOverReason = GameOverReason::NoGeometricMove;
                 break;
             }
 
             const SimulationResult sim = Simulator::drop(board, pieces[0], move);
             if (sim.gameOver && !sim.allClear) {
+                int safeMoves = 0;
+                for (const auto& candidateMove : geometricMoves) {
+                    const SimulationResult candidateSim =
+                        Simulator::drop(board, pieces[0], candidateMove);
+                    if (!candidateSim.gameOver || candidateSim.allClear) {
+                        ++safeMoves;
+                    }
+                }
+                stats.safeMovesAtEnd = safeMoves;
+                stats.geometricMovesAtEnd = static_cast<int>(geometricMoves.size());
+                if (safeMoves == 0) {
+                    stats.gameOverReason = GameOverReason::NoSafeMove;
+                } else {
+                    stats.gameOverReason = GameOverReason::SelectedDeathWithSafeMove;
+                }
                 stats.gameOver = true;
+                board = sim.board;
                 break;
             }
 
@@ -155,11 +223,53 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
             ++stats.turns;
         }
 
-        if (stats.gameOver) ++gamesOver;
+        const auto endHeights = board.heights();
+        stats.maxHeightAtEnd = *std::max_element(endHeights.begin(), endHeights.end());
+        stats.dangerColumnHeightAtEnd = endHeights[2];
+        stats.occupiedAtEnd = std::accumulate(endHeights.begin(), endHeights.end(), 0);
+
+        if (stats.gameOver) {
+            ++gamesOver;
+            const int reasonIndex = static_cast<int>(stats.gameOverReason);
+            if (reasonIndex >= 0 && reasonIndex < static_cast<int>(gameOverReasons.size())) {
+                ++gameOverReasons[static_cast<std::size_t>(reasonIndex)];
+            }
+        }
         totalScore += stats.score;
         totalTurns += stats.turns;
         globalMaxChain = std::max(globalMaxChain, stats.maxChain);
         maxChains.push_back(stats.maxChain);
+
+        if (config.progress) {
+            const int completedGames = game + 1;
+            const int completed12 = static_cast<int>(std::count_if(
+                maxChains.begin(), maxChains.end(),
+                [](int value) { return value >= 12; }));
+            const double running12Percent = completedGames > 0
+                ? 100.0 * static_cast<double>(completed12) / completedGames
+                : 0.0;
+            const double runningAvgTurns =
+                static_cast<double>(totalTurns) / completedGames;
+
+            std::ostringstream progress;
+            progress << "[Benchmark] Game " << completedGames << "/" << config.games
+                     << " | max=" << stats.maxChain
+                     << " | survived=" << stats.turns << "/" << config.turns
+                     << " | 12+=" << completed12 << "/" << completedGames
+                     << " (" << std::fixed << std::setprecision(1) << running12Percent << "%)"
+                     << " | avgSurvived=" << std::fixed << std::setprecision(1) << runningAvgTurns;
+            if (stats.gameOver) {
+                progress << " | gameOver=" << gameOverReasonName(stats.gameOverReason)
+                         << " | h2=" << stats.dangerColumnHeightAtEnd
+                         << " | maxH=" << stats.maxHeightAtEnd
+                         << " | occupied=" << stats.occupiedAtEnd;
+                if (stats.geometricMovesAtEnd > 0) {
+                    progress << " | safeMoves=" << stats.safeMovesAtEnd
+                             << "/" << stats.geometricMovesAtEnd;
+                }
+            }
+            printProgress(progress.str());
+        }
     }
 
     const auto benchmarkEnd = std::chrono::steady_clock::now();
@@ -189,7 +299,7 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
 
     std::ostringstream json;
     json << "{";
-    json << "\"version\":1,";
+    json << "\"version\":2,";
     json << "\"games\":" << config.games << ",";
     json << "\"turns\":" << config.turns << ",";
     json << "\"seed\":" << config.seed << ",";
@@ -206,6 +316,13 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
     json << "\"averageScore\":" << jsonNumber(avgScore) << ",";
     json << "\"averageTurns\":" << jsonNumber(avgTurns) << ",";
     json << "\"gamesOver\":" << gamesOver << ",";
+    json << "\"gameOverReasons\":{";
+    json << "\"invalid_move\":" << gameOverReasons[static_cast<std::size_t>(GameOverReason::InvalidMove)] << ",";
+    json << "\"no_geometric_move\":" << gameOverReasons[static_cast<std::size_t>(GameOverReason::NoGeometricMove)] << ",";
+    json << "\"no_safe_move\":" << gameOverReasons[static_cast<std::size_t>(GameOverReason::NoSafeMove)] << ",";
+    json << "\"selected_death_with_safe_move\":" << gameOverReasons[static_cast<std::size_t>(GameOverReason::SelectedDeathWithSafeMove)] << ",";
+    json << "\"other\":" << gameOverReasons[static_cast<std::size_t>(GameOverReason::Other)];
+    json << "},";
     json << "\"averageThinkMs\":" << jsonNumber(avgThinkMs) << ",";
     json << "\"totalWallMs\":" << jsonNumber(wallMs) << ",";
     json << "\"deterministic\":" << jsonBool(true);

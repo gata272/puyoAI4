@@ -10,6 +10,9 @@ struct ChainBenchmarkConfig {
     int seed = 20260908;
     int depth = 3;
     int beamWidth = 8;
+    // Print one progress line per completed game. Enabled for the browser and
+    // CLI benchmark so long runs visibly advance instead of appearing stuck.
+    bool progress = true;
 };
 
 // Runs a deterministic, single-player benchmark. Every configuration using
