@@ -72,6 +72,21 @@
         return `${((count / games) * 100).toFixed(1)}% (${count}/${games})`;
     }
 
+    function formatGameOverReasons(reasons) {
+        if (!reasons) return '旧バージョンの結果';
+        const labels = [
+            ['no_safe_move', '安全手なし'],
+            ['selected_death_with_safe_move', '安全手ありで死亡手を選択'],
+            ['no_geometric_move', '配置不能'],
+            ['invalid_move', '無効手'],
+            ['other', 'その他']
+        ];
+        const parts = labels
+            .filter(([key]) => Number(reasons[key] || 0) > 0)
+            .map(([key, label]) => `${label}: ${reasons[key]}`);
+        return parts.length ? parts.join(' / ') : 'なし';
+    }
+
     function renderResult(result) {
         const el = $('benchmark-result');
         if (!el) return;
@@ -90,6 +105,8 @@
                     <tr><th>12連鎖以上</th><td>${formatPercent(result.atLeast12, result.games)}</td></tr>
                     <tr><th>平均スコア</th><td>${result.averageScore.toFixed(1)}</td></tr>
                     <tr><th>平均生存ターン</th><td>${result.averageTurns.toFixed(1)} / ${result.turns}</td></tr>
+                    <tr><th>ゲームオーバー</th><td>${result.gamesOver} / ${result.games}</td></tr>
+                    <tr><th>ゲームオーバー原因</th><td>${formatGameOverReasons(result.gameOverReasons)}</td></tr>
                     <tr><th>平均思考時間</th><td>${result.averageThinkMs.toFixed(2)} ms / 手</td></tr>
                     <tr><th>測定時間</th><td>${(result.totalWallMs / 1000).toFixed(2)} s</td></tr>
                     <tr><th>設定</th><td>depth ${result.depth} / beam ${result.beamWidth}</td></tr>

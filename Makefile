@@ -21,7 +21,7 @@ AI_SOURCES := \
 
 BENCHMARK_SOURCES := $(AI_SOURCES) ai/benchmark/chain_benchmark.cpp
 
-.PHONY: test benchmark clean
+.PHONY: test benchmark benchmark-test clean
 
 test:
 	$(CXX) $(CXXFLAGS) $(INCLUDES) \
@@ -37,6 +37,12 @@ test:
 		-o /tmp/puyoai_virtual_test
 	/tmp/puyoai_virtual_test
 
+benchmark-test:
+	$(CXX) -std=c++20 -O0 -Wall -Wextra -pedantic $(INCLUDES) \
+		tests/test_chain_benchmark.cpp $(BENCHMARK_SOURCES) \
+		-o /tmp/puyoai_benchmark_test
+	/tmp/puyoai_benchmark_test
+
 benchmark:
 	$(CXX) $(CXXFLAGS) $(INCLUDES) \
 		tools/chain_benchmark_cli.cpp $(BENCHMARK_SOURCES) \
@@ -44,4 +50,4 @@ benchmark:
 	/tmp/puyoai_benchmark 4 60 20260908 2 4
 
 clean:
-	rm -f /tmp/puyoai_test /tmp/puyoai_construction_test /tmp/puyoai_virtual_test /tmp/puyoai_benchmark
+	rm -f /tmp/puyoai_test /tmp/puyoai_construction_test /tmp/puyoai_virtual_test /tmp/puyoai_benchmark_test /tmp/puyoai_benchmark
