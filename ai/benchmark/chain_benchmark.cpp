@@ -34,6 +34,7 @@ constexpr int kMinDepth = 1;
 constexpr int kMaxDepth = 50;
 constexpr int kMinBeam = 1;
 constexpr int kMaxBeam = 500;
+constexpr int kDiagnosticsHistory = 5;
 
 enum class GameOverReason {
     None,
@@ -69,6 +70,61 @@ struct GameStats {
     int safeMovesAtEnd = 0;
 };
 
+struct TurnSnapshot {
+    int turn = 0;
+    Board board;
+    PuyoPair piece{};
+};
+
+struct SafetySnapshot {
+    int turnsBeforeDeath = 0;
+    int turn = 0;
+    int geometricMoves = 0;
+    int safeMoves = 0;
+    int maxHeight = 0;
+    int dangerColumnHeight = 0;
+    int occupied = 0;
+};
+
+int countSafeMoves(const Board& board, const PuyoPair& piece, int* geometricCount = nullptr) {
+    const auto moves = generateLegalMoves(board, piece);
+    if (geometricCount) {
+        *geometricCount = static_cast<int>(moves.size());
+    }
+    int safe = 0;
+    for (const auto& move : moves) {
+        const SimulationResult result = Simulator::drop(board, piece, move);
+        if (!result.gameOver || result.allClear) {
+            ++safe;
+        }
+    }
+    return safe;
+}
+
+std::vector<SafetySnapshot> diagnoseRecentTurns(
+    const std::vector<TurnSnapshot>& history,
+    int deathTurn
+) {
+    std::vector<SafetySnapshot> diagnostics;
+    const int start = std::max(0, static_cast<int>(history.size()) - kDiagnosticsHistory);
+    for (int i = start; i < static_cast<int>(history.size()); ++i) {
+        const TurnSnapshot& snapshot = history[static_cast<std::size_t>(i)];
+        int geometric = 0;
+        const int safe = countSafeMoves(snapshot.board, snapshot.piece, &geometric);
+        const auto heights = snapshot.board.heights();
+        diagnostics.push_back({
+            deathTurn - snapshot.turn,
+            snapshot.turn,
+            geometric,
+            safe,
+            *std::max_element(heights.begin(), heights.end()),
+            heights[2],
+            std::accumulate(heights.begin(), heights.end(), 0)
+        });
+    }
+    return diagnostics;
+}
+
 int clampInt(int value, int lo, int hi) {
     return std::max(lo, std::min(value, hi));
 }
@@ -101,7 +157,14 @@ std::vector<PuyoPair> makeQueue(int seed, int game, int turns) {
 
 void printProgress(const std::string& message) {
 #ifdef __EMSCRIPTEN__
-    emscripten_log(EM_LOG_CONSOLE, "%s", message.c_str());
+    // The benchmark runs inside a dedicated Web Worker.  emscripten_log() is
+    // not guaranteed to reach the worker's parent console, so explicitly send
+    // progress messages to the worker.  The JS worker forwards them to the UI.
+    EM_ASM({
+        if (typeof self !== 'undefined' && typeof self.postMessage === 'function') {
+            self.postMessage({ type: 'progress', message: UTF8ToString($0) });
+        }
+    }, message.c_str());
 #else
     std::cerr << message << std::endl;
 #endif
@@ -148,6 +211,9 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
     int gamesOver = 0;
     int globalMaxChain = 0;
     std::array<int, 6> gameOverReasons{};
+    std::array<long long, kDiagnosticsHistory> diagnosticSafeMoveSum{};
+    std::array<long long, kDiagnosticsHistory> diagnosticGeometricMoveSum{};
+    std::array<int, kDiagnosticsHistory> diagnosticCounts{};
 
     const auto benchmarkStart = std::chrono::steady_clock::now();
 
@@ -158,6 +224,8 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
         const auto queue = makeQueue(config.seed, game, config.turns);
 
         GameStats stats;
+        std::vector<TurnSnapshot> recentTurns;
+        recentTurns.reserve(kDiagnosticsHistory);
 
         for (int turn = 0; turn < config.turns; ++turn) {
             // AI needs the current pair plus two lookahead pairs.
@@ -167,6 +235,11 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
                 pieces.push_back(queue[turn + i]);
             }
             if (pieces.empty()) break;
+
+            recentTurns.push_back({turn, board, pieces[0]});
+            if (recentTurns.size() > static_cast<std::size_t>(kDiagnosticsHistory)) {
+                recentTurns.erase(recentTurns.begin());
+            }
 
             const auto thinkStart = std::chrono::steady_clock::now();
             const Move move = ai.chooseMove(
@@ -240,6 +313,26 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
         globalMaxChain = std::max(globalMaxChain, stats.maxChain);
         maxChains.push_back(stats.maxChain);
 
+        if (config.progress && stats.gameOver) {
+            const auto diagnostics = diagnoseRecentTurns(recentTurns, stats.turns);
+            for (const auto& d : diagnostics) {
+                if (d.turnsBeforeDeath >= 0 && d.turnsBeforeDeath < kDiagnosticsHistory) {
+                    const auto index = static_cast<std::size_t>(d.turnsBeforeDeath);
+                    diagnosticSafeMoveSum[index] += d.safeMoves;
+                    diagnosticGeometricMoveSum[index] += d.geometricMoves;
+                    ++diagnosticCounts[index];
+                }
+                std::ostringstream detail;
+                detail << "[Benchmark]   death-" << d.turnsBeforeDeath
+                       << " | turn=" << d.turn
+                       << " | safeMoves=" << d.safeMoves << "/" << d.geometricMoves
+                       << " | maxH=" << d.maxHeight
+                       << " | h2=" << d.dangerColumnHeight
+                       << " | occupied=" << d.occupied;
+                printProgress(detail.str());
+            }
+        }
+
         if (config.progress) {
             const int completedGames = game + 1;
             const int completed12 = static_cast<int>(std::count_if(
@@ -299,7 +392,7 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
 
     std::ostringstream json;
     json << "{";
-    json << "\"version\":2,";
+    json << "\"version\":3,";
     json << "\"games\":" << config.games << ",";
     json << "\"turns\":" << config.turns << ",";
     json << "\"seed\":" << config.seed << ",";
@@ -323,6 +416,33 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
     json << "\"selected_death_with_safe_move\":" << gameOverReasons[static_cast<std::size_t>(GameOverReason::SelectedDeathWithSafeMove)] << ",";
     json << "\"other\":" << gameOverReasons[static_cast<std::size_t>(GameOverReason::Other)];
     json << "},";
+    json << "\"diagnosticHistory\":" << kDiagnosticsHistory << ",";
+    json << "\"averageSafeMovesBeforeDeath\":[";
+    for (int i = 0; i < kDiagnosticsHistory; ++i) {
+        if (i > 0) json << ",";
+        const double avg = diagnosticCounts[static_cast<std::size_t>(i)] > 0
+            ? static_cast<double>(diagnosticSafeMoveSum[static_cast<std::size_t>(i)]) /
+              diagnosticCounts[static_cast<std::size_t>(i)]
+            : 0.0;
+        json << jsonNumber(avg);
+    }
+    json << "],";
+    json << "\"averageGeometricMovesBeforeDeath\":[";
+    for (int i = 0; i < kDiagnosticsHistory; ++i) {
+        if (i > 0) json << ",";
+        const double avg = diagnosticCounts[static_cast<std::size_t>(i)] > 0
+            ? static_cast<double>(diagnosticGeometricMoveSum[static_cast<std::size_t>(i)]) /
+              diagnosticCounts[static_cast<std::size_t>(i)]
+            : 0.0;
+        json << jsonNumber(avg);
+    }
+    json << "],";
+    json << "\"diagnosticCounts\":[";
+    for (int i = 0; i < kDiagnosticsHistory; ++i) {
+        if (i > 0) json << ",";
+        json << diagnosticCounts[static_cast<std::size_t>(i)];
+    }
+    json << "],";
     json << "\"averageThinkMs\":" << jsonNumber(avgThinkMs) << ",";
     json << "\"totalWallMs\":" << jsonNumber(wallMs) << ",";
     json << "\"deterministic\":" << jsonBool(true);
