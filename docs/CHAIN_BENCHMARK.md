@@ -59,3 +59,13 @@ beam width except for the single variable being tested.
 The primary research metric is maximum chain per game. Average maximum chain,
 median, p90, threshold rates (5/8/10/12), survival, score and thinking time
 are secondary metrics.
+
+## 進行表示とゲームオーバー診断
+
+長時間のベンチマークでは、コンソールに次の形式でゲームごとの進行状況を表示します。
+
+```text
+[Benchmark] Game 47/100 | max=12 | survived=87/100 | gameOver=no_safe_move | h2=12 | maxH=12 | occupied=54 | safeMoves=0/22
+```
+
+`gameOverReasons` には、ゲームオーバーの原因として「安全な配置が残っていなかった」「安全な配置があるのに死亡手を選択した」「幾何学的に配置できなかった」「無効手」などを集計します。これにより、単に平均生存ターンを見るだけでなく、次の改善で何を直すべきかを切り分けられます。
