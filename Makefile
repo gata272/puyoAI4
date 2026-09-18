@@ -14,6 +14,7 @@ AI_SOURCES := \
 	ai/evaluation/main_chain.cpp \
 	ai/evaluation/forms.cpp \
 	ai/evaluation/debug_log.cpp \
+	ai/evaluation/survival_horizon.cpp \
 	ai/search/move_generator.cpp \
 	ai/search/beam_search.cpp \
 	ai/gtr/gtr_ai.cpp \

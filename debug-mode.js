@@ -19,7 +19,9 @@
         ready: false,
         running: false,
         developerMode: false,
-        weights: []
+        weights: [],
+        benchmarkProgressLines: [],
+        lastBenchmarkLog: ''
     };
 
     function $(id) { return document.getElementById(id); }
@@ -101,6 +103,45 @@
         return `<tr><th>死亡前の平均安全手数</th><td>${parts.join(' / ')}</td></tr>`;
     }
 
+    function buildBenchmarkLog(result) {
+        const header = [
+            '[PuyoAI Benchmark Log]',
+            `version=${result.version ?? 'unknown'}`,
+            `games=${result.games} turns=${result.turns} seed=${result.seed}`,
+            `depth=${result.depth} beam=${result.beamWidth}`,
+            ''
+        ];
+        const progress = STATE.benchmarkProgressLines.slice();
+        const summary = [
+            '[Summary]',
+            `averageMaxChain=${Number(result.averageMaxChain).toFixed(3)}`,
+            `medianMaxChain=${Number(result.medianMaxChain).toFixed(3)}`,
+            `p90MaxChain=${Number(result.p90MaxChain).toFixed(3)}`,
+            `maxChain=${result.maxChain}`,
+            `5+=${result.atLeast5}/${result.games}`,
+            `8+=${result.atLeast8}/${result.games}`,
+            `10+=${result.atLeast10}/${result.games}`,
+            `12+=${result.atLeast12}/${result.games}`,
+            `averageScore=${Number(result.averageScore).toFixed(3)}`,
+            `averageTurns=${Number(result.averageTurns).toFixed(3)}`,
+            `gamesOver=${result.gamesOver}/${result.games}`,
+            `gameOverReasons=${JSON.stringify(result.gameOverReasons)}`,
+            `averageSafeMovesBeforeDeath=${JSON.stringify(result.averageSafeMovesBeforeDeath)}`,
+            `averageGeometricMovesBeforeDeath=${JSON.stringify(result.averageGeometricMovesBeforeDeath)}`,
+            `diagnosticCounts=${JSON.stringify(result.diagnosticCounts)}`,
+            `averageThinkMs=${Number(result.averageThinkMs).toFixed(3)}`,
+            `totalWallMs=${Number(result.totalWallMs).toFixed(3)}`,
+            `deterministic=${result.deterministic}`
+        ];
+        const rawJson = ['[Raw JSON]', JSON.stringify(result, null, 2)];
+        return [...header, ...progress, '', ...summary, '', ...rawJson].join('\n') + '\n';
+    }
+
+    function updateLogButtons(visible) {
+        const actions = $('benchmark-log-actions');
+        if (actions) actions.hidden = !visible;
+    }
+
     function renderResult(result) {
         const el = $('benchmark-result');
         if (!el) return;
@@ -129,6 +170,10 @@
                 </tbody>
             </table>
             <p class="benchmark-note">同じ Seed・試行数・ターン数なら、異なるAI設定でも同じツモ列が使われます。</p>
+            <div id="benchmark-log-actions" class="benchmark-log-actions" hidden>
+                <button type="button" onclick="copyBenchmarkLog()">測定ログをコピー</button>
+                <button type="button" onclick="downloadBenchmarkLog()">測定ログをファイル保存</button>
+            </div>
         `;
     }
 
@@ -149,6 +194,7 @@
                 return;
             }
             if (msg.type === 'progress') {
+                STATE.benchmarkProgressLines.push(String(msg.message || ''));
                 console.log(msg.message);
                 const match = String(msg.message || '').match(/Game (\d+)\/(\d+)/);
                 if (match) {
@@ -160,6 +206,8 @@
                 try {
                     const result = JSON.parse(msg.resultJson);
                     renderResult(result);
+                    STATE.lastBenchmarkLog = buildBenchmarkLog(result);
+                    updateLogButtons(true);
                     setRunning(false);
                     setStatus('測定完了');
                 } catch (error) {
@@ -287,9 +335,48 @@
 
         const config = readConfig();
         setRunning(true);
+        STATE.benchmarkProgressLines = [];
+        STATE.lastBenchmarkLog = '';
+        updateLogButtons(false);
         setStatus('測定開始…');
         $('benchmark-result').innerHTML = '<div class="benchmark-empty">結果を計算中…</div>';
         STATE.worker.postMessage({ type: 'run', ...config });
+    };
+
+
+    global.copyBenchmarkLog = async function () {
+        if (!STATE.lastBenchmarkLog) return;
+        try {
+            await navigator.clipboard.writeText(STATE.lastBenchmarkLog);
+            setStatus('測定ログをクリップボードにコピーしました');
+        } catch (error) {
+            const area = document.createElement('textarea');
+            area.value = STATE.lastBenchmarkLog;
+            area.style.position = 'fixed';
+            area.style.opacity = '0';
+            document.body.appendChild(area);
+            area.focus();
+            area.select();
+            let ok = false;
+            try { ok = document.execCommand('copy'); } catch (_) {}
+            area.remove();
+            setStatus(ok ? '測定ログをクリップボードにコピーしました' : 'コピーに失敗しました');
+        }
+    };
+
+    global.downloadBenchmarkLog = function () {
+        if (!STATE.lastBenchmarkLog) return;
+        const blob = new Blob([STATE.lastBenchmarkLog], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        link.href = url;
+        link.download = `puyoAI-benchmark-${stamp}.log.txt`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setStatus('測定ログをファイル保存しました');
     };
 
     global.initializeDebugMode = function () {

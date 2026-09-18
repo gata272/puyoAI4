@@ -568,6 +568,9 @@ body.board-gameover #puyo-board .puyo::after {
 .benchmark-table th { text-align: left; color: #aaa; font-weight: normal; }
 .benchmark-table td { text-align: right; color: #fff; }
 .benchmark-note { color: #888; font-size: 0.68em; line-height: 1.45; }
+.benchmark-log-actions { display: flex; gap: 6px; margin-top: 8px; }
+.benchmark-log-actions button { flex: 1; padding: 7px 5px; border: none; border-radius: 5px; background: #457b9d; color: #fff; font-size: 0.72em; cursor: pointer; }
+.benchmark-log-actions button:hover { filter: brightness(1.08); }
 .benchmark-empty { color: #777; font-size: 0.78em; padding: 10px 0; }
 @media (max-width: 650px) {
     .benchmark-form { grid-template-columns: 1fr; }
