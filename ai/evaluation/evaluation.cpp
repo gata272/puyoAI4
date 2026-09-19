@@ -208,9 +208,11 @@ double quietScore(const Board& board, const Weights& w, int drop) {
 double evaluate(
     const Board& board,
     const Weights& weights,
-    const EvaluationContext& context
+    const EvaluationContext& context,
+    const Features* precomputed
 ) {
-    const Features f = extractStaticFeatures(board);
+    const Features localFeatures = precomputed ? Features{} : extractStaticFeatures(board);
+    const Features& f = precomputed ? *precomputed : localFeatures;
     double score =
         f.form * weights.form +
         f.chainPotential * weights.chainPotential +
@@ -253,10 +255,14 @@ double actionPenalty(
     const Board& before,
     const SimulationResult& result,
     const Move& move,
-    const Weights& weights
+    const Weights& weights,
+    const Features* beforeFeatures,
+    const Features* afterFeatures
 ) {
-    const Features a = extractStaticFeatures(before);
-    const Features b = extractStaticFeatures(result.board);
+    const Features localBefore = beforeFeatures ? Features{} : extractStaticFeatures(before);
+    const Features localAfter = afterFeatures ? Features{} : extractStaticFeatures(result.board);
+    const Features& a = beforeFeatures ? *beforeFeatures : localBefore;
+    const Features& b = afterFeatures ? *afterFeatures : localAfter;
     const double tear = std::max(0.0, (a.link2 + a.link3) - (b.link2 + b.link3));
     // Protect a strong exact-3 anchor unless the move actually fires it.
     // This is the "mark the trigger and keep it alive" part of the policy.

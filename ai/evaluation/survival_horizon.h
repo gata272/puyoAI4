@@ -29,7 +29,8 @@ SurvivalHorizon analyzeSurvivalHorizon(
 // mobility levels.
 double survivalHorizonScore(
     const SurvivalHorizon& horizon,
-    int previousSafeMoves = -1
+    int previousSafeMoves = -1,
+    int previousGeometricMoves = -1
 );
 
 } // namespace puyo
