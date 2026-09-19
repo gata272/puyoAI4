@@ -7,6 +7,7 @@
 #include "../evaluation/main_chain.h"
 #include "../evaluation/debug_log.h"
 #include "../evaluation/virtual_chain_potential.h"
+#include "../evaluation/survival_horizon.h"
 #include "../simulation/simulator.h"
 
 #include <algorithm>
@@ -40,6 +41,15 @@ struct Node {
     double virtualPotential = 0.0;
     VirtualChainFeatures virtualFeatures;
     bool hasVirtual = false;
+    int futureSafeMoves = -1;
+    int previousFutureSafeMoves = -1;
+    int rootFutureSafeMoves = -1;
+    double rootSurvivalScore = 0.0;
+    bool hasRootSurvival = false;
+    int futureGeometricMoves = -1;
+    int bestNextGeometricMoves = -1;
+    double survivalScore = 0.0;
+    bool hasSurvival = false;
     bool gameOver = false;
 };
 
@@ -134,6 +144,15 @@ std::vector<Node> expandNode(
         candidate.construction = 0.0;
         candidate.prematureRisk = 0.0;
         candidate.score = parent.score + local;
+        candidate.futureSafeMoves = -1;
+        candidate.previousFutureSafeMoves = parent.hasSurvival ? parent.futureSafeMoves : -1;
+        candidate.rootFutureSafeMoves = parent.rootFutureSafeMoves;
+        candidate.rootSurvivalScore = parent.rootSurvivalScore;
+        candidate.hasRootSurvival = parent.hasRootSurvival;
+        candidate.futureGeometricMoves = -1;
+        candidate.bestNextGeometricMoves = -1;
+        candidate.survivalScore = 0.0;
+        candidate.hasSurvival = false;
         candidate.gameOver = deathMove;
 
         if (deathMove) death.push_back(std::move(candidate));
@@ -190,6 +209,51 @@ void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
         if (!duplicate) selected.push_back(node);
     }
     candidates.swap(selected);
+}
+
+void applySurvivalProbe(
+    std::vector<Node>& candidates,
+    const std::vector<PuyoPair>& pieces,
+    int depth,
+    int probeLimit
+) {
+    // At depth d, candidates have consumed pieces[d].  Probe only the next
+    // visible pair (and its following geometric mobility) so this remains a
+    // human-information horizon rather than hidden-future search.
+    if (candidates.empty() || probeLimit <= 0 || depth >= static_cast<int>(pieces.size())) return;
+    const PuyoPair* next = &pieces[static_cast<std::size_t>(depth)];
+    const PuyoPair* nextNext = (depth + 1 < static_cast<int>(pieces.size()))
+        ? &pieces[static_cast<std::size_t>(depth + 1)] : nullptr;
+
+    // Probe the first candidates in their existing deterministic expansion
+    // order. Do not sort here: an extra sort of equal-score nodes can change
+    // transposition representatives and unintentionally change the AI even
+    // when the survival signal is not used for ranking.
+    const int n = std::min(probeLimit, static_cast<int>(candidates.size()));
+    for (int i = 0; i < n; ++i) {
+        Node& node = candidates[static_cast<std::size_t>(i)];
+        const auto heights = node.board.heights();
+        const int maxHeight = *std::max_element(heights.begin(), heights.end());
+        // Do not disturb normal construction while the board has ample room.
+        // The survival correction is activated only in the danger zone where
+        // the benchmark showed the characteristic mobility collapse.
+        if (heights[2] < 11 && maxHeight < 13) continue;
+        const int previousSafeMoves = node.previousFutureSafeMoves;
+        const SurvivalHorizon h = analyzeSurvivalHorizon(node.board, next, nextNext);
+        node.futureSafeMoves = h.safeMoves;
+        node.futureGeometricMoves = h.geometricMoves;
+        node.bestNextGeometricMoves = h.bestNextGeometricMoves;
+        node.survivalScore = survivalHorizonScore(h, previousSafeMoves);
+        // Keep the root-level mobility measurement attached to the root action
+        // all the way to the final beam. It can then be used for a final safety
+        // rescue without changing the intermediate construction search.
+        if (depth == 1) {
+            node.rootFutureSafeMoves = h.safeMoves;
+            node.rootSurvivalScore = node.survivalScore;
+            node.hasRootSurvival = true;
+        }
+        node.hasSurvival = true;
+    }
 }
 
 void applyVirtualRerank(std::vector<Node>& beam, int topM) {
@@ -252,6 +316,12 @@ void debugBeamSummary(const std::vector<Node>& beam, int depth, int beamWidth) {
             << " virtual=" << x.virtualPotential
             << " vBest=" << x.virtualFeatures.bestChain
             << " vTop3=" << x.virtualFeatures.top3ChainSum
+            << " safeNext=" << x.futureSafeMoves
+            << " prevSafe=" << x.previousFutureSafeMoves
+            << " geomNext=" << x.futureGeometricMoves
+            << " next2Geom=" << x.bestNextGeometricMoves
+            << " survival=" << x.survivalScore
+            << " rootSafe=" << x.rootFutureSafeMoves
             << " structure=" << x.structure
             << " mainChain=" << x.mainChain.length()
             << " mainContinuity=" << x.mainChainScore
@@ -261,12 +331,8 @@ void debugBeamSummary(const std::vector<Node>& beam, int depth, int beamWidth) {
 }
 
 double finalUtility(const Node& n) {
-    // Actual chain count remains the primary realised objective. Virtual-fire
-    // potential is the main latent objective and is deliberately strong enough
-    // to prefer a board that can plausibly reach 10-13 over a shallow 7-9
-    // cash-out, while never pretending the virtual future is guaranteed.
     return n.score + static_cast<double>(n.maxChain) * 25000.0
-         + n.virtualPotential * 1.0
+         + n.virtualPotential
          + static_cast<double>(n.mainChain.length()) * 16000.0
          + n.mainChainScore * 0.50
          + n.construction * 0.06
@@ -276,18 +342,11 @@ double finalUtility(const Node& n) {
 bool betterFinal(const Node& a, const Node& b) {
     const double ua = finalUtility(a);
     const double ub = finalUtility(b);
-    if (ua != ub) {
-        // Structure is a tie-breaker, not a replacement for the real chain
-        // objective.  This keeps the proven search behavior while preferring
-        // the user's trigger-transfer / chain-tail construction when two
-        // choices are otherwise close.
-        if (std::abs(ua - ub) <= 10000.0 && a.structure != b.structure)
-            return a.structure > b.structure;
-        return ua > ub;
-    }
+    if (ua != ub) return ua > ub;
     if (a.structure != b.structure) return a.structure > b.structure;
     return a.maxChain > b.maxChain;
 }
+
 
 Move chooseRoot(
     const Board& board,
@@ -346,6 +405,7 @@ Move chooseRoot(
         // smaller top-M budget.
         if (depth == 0) {
             applyVirtualRerank(next, std::min(12, activeBeamWidth));
+            applySurvivalProbe(next, pieces, depth + 1, std::min(12, activeBeamWidth));
             std::sort(next.begin(), next.end(), [](const Node& a, const Node& b) {
                 return finalUtility(a) > finalUtility(b);
             });
@@ -386,6 +446,10 @@ Move chooseRoot(
         }
         next.swap(uniqueNext);
 
+        if (depth > 0) {
+            applySurvivalProbe(next, pieces, depth + 1, std::min(12, activeBeamWidth));
+        }
+
         pruneBeam(next, activeBeamWidth);
 
         beam.swap(next);
@@ -420,6 +484,9 @@ Move chooseRoot(
     // virtual-fire probe, then apply the user's sequential trigger-transfer
     // analysis only to the strongest virtual candidates.
     applyVirtualRerank(beam, std::min(18, static_cast<int>(beam.size())));
+    if (horizon < static_cast<int>(pieces.size())) {
+        applySurvivalProbe(beam, pieces, horizon, static_cast<int>(beam.size()));
+    }
     std::sort(beam.begin(), beam.end(), [](const Node& a, const Node& b) {
         return finalUtility(a) > finalUtility(b);
     });
@@ -448,30 +515,45 @@ Move chooseRoot(
         return {-1, 0, false};
     }
 
+    // Final safety rescue: do not let a near-immediate mobility collapse win
+    // a close final comparison. This is intentionally applied only after the
+    // normal chain/structure ranking, so survival cannot globally turn the AI
+    // into a safe-but-short builder.
+    const Node* selected = &(*best);
+    if (best->hasRootSurvival && best->rootFutureSafeMoves <= 1) {
+        for (const auto& node : beam) {
+            if (!node.root.valid || !node.hasRootSurvival || node.rootFutureSafeMoves < 2) continue;
+            const double utilityGap = finalUtility(*best) - finalUtility(node);
+            if (utilityGap <= 10000.0 && node.rootFutureSafeMoves > selected->rootFutureSafeMoves) {
+                selected = &node;
+            }
+        }
+    }
+
     if (debugLoggingEnabled()) {
         std::ostringstream oss;
-        oss << "[AI-DEBUG] SELECT root=(" << best->root.x << "," << best->root.rotation
-            << ") utility=" << finalUtility(*best)
-            << " score=" << best->score
-            << " maxChain=" << best->maxChain
-            << " route=" << best->triggerRoute
-            << " longPotential=" << best->longPotential
-            << " structure=" << best->structure
-            << " mainChain=" << best->mainChain.length()
-            << " construction=" << best->construction
-            << " prematureRisk=" << best->prematureRisk
+        oss << "[AI-DEBUG] SELECT root=(" << selected->root.x << "," << selected->root.rotation
+            << ") utility=" << finalUtility(*selected)
+            << " score=" << selected->score
+            << " maxChain=" << selected->maxChain
+            << " route=" << selected->triggerRoute
+            << " longPotential=" << selected->longPotential
+            << " structure=" << selected->structure
+            << " mainChain=" << selected->mainChain.length()
+            << " construction=" << selected->construction
+            << " prematureRisk=" << selected->prematureRisk
             << " mainRoute=";
-        for (std::size_t i = 0; i < best->mainChain.colors.size(); ++i) {
+        for (std::size_t i = 0; i < selected->mainChain.colors.size(); ++i) {
             if (i) oss << "->";
-            oss << best->mainChain.colors[i];
+            oss << selected->mainChain.colors[i];
         }
-        oss << " mainContinuity=" << best->mainChainScore
-            << " gameOver=" << (best->gameOver ? 1 : 0) << "\n"
+        oss << " mainContinuity=" << selected->mainChainScore
+            << " gameOver=" << (selected->gameOver ? 1 : 0) << "\n"
             << "[AI-DEBUG] selected board (top->bottom):\n"
-            << debugBoard(best->board);
+            << debugBoard(selected->board);
         debugLog(oss.str());
     }
-    return best->root;
+    return selected->root;
 }
 
 } // namespace
