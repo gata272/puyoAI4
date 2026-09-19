@@ -34,4 +34,18 @@ double prematureTriggerRisk(const Board& board);
 double chainDependencyPathScore(const Board& board);
 double chainDependencyBranchPenalty(const Board& board);
 
+struct TriggerViability {
+    int bestPath = 0;
+    int viableTriggers = 0;
+    int exactTriples = 0;
+    int latentPairs = 0;
+    double score = 0.0;
+};
+
+// Measures whether the currently stored construction has an actual
+// trigger->transfer path, rather than merely looking like a long-chain shape.
+// This is intentionally based only on the current board.
+TriggerViability analyzeTriggerViability(const Board& board, int knownPath = -1);
+double triggerViabilityScore(const TriggerViability& viability);
+
 } // namespace puyo

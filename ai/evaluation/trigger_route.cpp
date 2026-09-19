@@ -296,4 +296,82 @@ double prematureTriggerRisk(const Board& board) {
         : 0.0;
 }
 
+
+TriggerViability analyzeTriggerViability(const Board& board, int knownPath) {
+    TriggerViability out;
+    const auto groups = groupsOf(board, 0);
+
+    std::vector<const Group*> triples;
+    triples.reserve(groups.size());
+
+    for (const auto& g : groups) {
+        if (g.cells.size() == 3) {
+            ++out.exactTriples;
+            triples.push_back(&g);
+        } else if (g.cells.size() == 2) {
+            // A pair is useful when at least one adjacent empty cell can
+            // accept another same-colour puyo. This is only a preparation
+            // signal; it is deliberately much weaker than an exact triple.
+            bool expandable = false;
+            for (const Pos& p : g.cells) {
+                constexpr int dx[4] = {1,-1,0,0};
+                constexpr int dy[4] = {0,0,1,-1};
+                for (int d = 0; d < 4; ++d) {
+                    const int nx = p.x + dx[d];
+                    const int ny = p.y + dy[d];
+                    if (inside(nx, ny) && board.get(nx, ny) == Cell::Empty) {
+                        expandable = true;
+                        break;
+                    }
+                }
+                if (expandable) break;
+            }
+            if (expandable) ++out.latentPairs;
+        }
+    }
+
+    if (knownPath >= 0) {
+        // Reuse the expensive route result already computed by the final beam
+        // structural pass. Only the cheap group census is repeated here.
+        out.bestPath = knownPath;
+        out.viableTriggers = knownPath > 0 ? 1 : 0;
+    } else {
+        for (const Group* trigger : triples) {
+            Board after;
+            const int chains = activateGroup(board, *trigger, &after);
+            if (chains > 0) {
+                ++out.viableTriggers;
+                out.bestPath = std::max(out.bestPath, 1 + chains);
+            }
+        }
+    }
+
+    // A board with exact triples but no post-trigger tail is not considered a
+    // strong chain-viable state. Pairs provide a weak reserve, not a substitute
+    // for a real dependency path.
+    out.score =
+        static_cast<double>(out.bestPath) * 18000.0 +
+        static_cast<double>(out.viableTriggers) * 3500.0 +
+        static_cast<double>(std::min(out.exactTriples, 5)) * 900.0 +
+        static_cast<double>(std::min(out.latentPairs, 8)) * 180.0;
+
+    if (out.bestPath >= 4) out.score += 12000.0;
+    if (out.bestPath >= 6) out.score += 18000.0;
+    if (out.bestPath >= 8) out.score += 28000.0;
+
+    // Exact triples with no useful continuation are not worthless, but too
+    // many of them are a sign that the board is accumulating "fake triggers".
+    if (knownPath < 0) {
+        const int deadTriples = std::max(0, out.exactTriples - out.viableTriggers);
+        out.score -= static_cast<double>(deadTriples) * 1800.0;
+    }
+
+    out.score = std::clamp(out.score, 0.0, 240000.0);
+    return out;
+}
+
+double triggerViabilityScore(const TriggerViability& viability) {
+    return viability.score;
+}
+
 } // namespace puyo
