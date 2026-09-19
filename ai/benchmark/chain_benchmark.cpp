@@ -3,6 +3,7 @@
 #include "../ai.h"
 #include "../simulation/simulator.h"
 #include "../search/move_generator.h"
+#include "../evaluation/debug_log.h"
 
 #include <algorithm>
 #include <array>
@@ -86,6 +87,23 @@ struct SafetySnapshot {
     int occupied = 0;
 };
 
+struct DecisionLogEntry {
+    int turn = 0;
+    Board preBoard;
+    PuyoPair current{};
+    PuyoPair next1{};
+    PuyoPair next2{};
+    bool hasNext1 = false;
+    bool hasNext2 = false;
+    Move selected{};
+    int geometricMoves = 0;
+    int safeMoves = 0;
+    bool selectedSafe = false;
+    SimulationResult simulation{};
+    long long thinkMicros = 0;
+    std::string debugLog;
+};
+
 int countSafeMoves(const Board& board, const PuyoPair& piece, int* geometricCount = nullptr) {
     const auto moves = generateLegalMoves(board, piece);
     if (geometricCount) {
@@ -155,6 +173,44 @@ std::vector<PuyoPair> makeQueue(int seed, int game, int turns) {
 }
 
 
+std::string jsonEscape(const std::string& value) {
+    std::ostringstream out;
+    for (unsigned char c : value) {
+        switch (c) {
+            case '\\': out << "\\\\"; break;
+            case '"': out << "\\\""; break;
+            case '\n': out << "\\n"; break;
+            case '\r': out << "\\r"; break;
+            case '\t': out << "\\t"; break;
+            default:
+                if (c < 0x20) {
+                    out << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+                        << static_cast<int>(c) << std::dec << std::setfill(' ');
+                } else {
+                    out << static_cast<char>(c);
+                }
+        }
+    }
+    return out.str();
+}
+
+std::string boardCompact(const Board& board) {
+    std::string out;
+    out.reserve(BOARD_WIDTH * BOARD_HEIGHT);
+    for (int y = 0; y < BOARD_HEIGHT; ++y) {
+        for (int x = 0; x < BOARD_WIDTH; ++x) {
+            const int value = static_cast<int>(board.get(x, y));
+            out.push_back(static_cast<char>('0' + clampInt(value, 0, 9)));
+        }
+    }
+    return out;
+}
+
+void appendPairJson(std::ostringstream& json, const PuyoPair& pair) {
+    json << "{\"main\":" << pair.main
+         << ",\"sub\":" << pair.sub << "}";
+}
+
 void printProgress(const std::string& message) {
 #ifdef __EMSCRIPTEN__
     // The benchmark runs inside a dedicated Web Worker.  emscripten_log() is
@@ -214,6 +270,9 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
     std::array<long long, kDiagnosticsHistory> diagnosticSafeMoveSum{};
     std::array<long long, kDiagnosticsHistory> diagnosticGeometricMoveSum{};
     std::array<int, kDiagnosticsHistory> diagnosticCounts{};
+    std::vector<std::vector<DecisionLogEntry>> decisionLogs;
+    if (config.recordDecisionLog) decisionLogs.resize(static_cast<std::size_t>(config.games));
+    setDebugLogging(config.recordDecisionLog);
 
     const auto benchmarkStart = std::chrono::steady_clock::now();
 
@@ -226,6 +285,9 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
         GameStats stats;
         std::vector<TurnSnapshot> recentTurns;
         recentTurns.reserve(kDiagnosticsHistory);
+        if (config.recordDecisionLog) {
+            decisionLogs[static_cast<std::size_t>(game)].reserve(static_cast<std::size_t>(config.turns));
+        }
 
         for (int turn = 0; turn < config.turns; ++turn) {
             // AI needs the current pair plus two lookahead pairs.
@@ -250,14 +312,37 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
                 config.beamWidth
             );
             const auto thinkEnd = std::chrono::steady_clock::now();
-            totalThinkMicros += std::chrono::duration_cast<std::chrono::microseconds>(
+            const long long thinkMicros = std::chrono::duration_cast<std::chrono::microseconds>(
                 thinkEnd - thinkStart
             ).count();
+            totalThinkMicros += thinkMicros;
             ++totalMoves;
+
+            DecisionLogEntry logEntry;
+            if (config.recordDecisionLog) {
+                logEntry.turn = turn;
+                logEntry.preBoard = board;
+                logEntry.current = pieces[0];
+                if (pieces.size() > 1) { logEntry.next1 = pieces[1]; logEntry.hasNext1 = true; }
+                if (pieces.size() > 2) { logEntry.next2 = pieces[2]; logEntry.hasNext2 = true; }
+                logEntry.selected = move;
+                logEntry.thinkMicros = thinkMicros;
+                logEntry.debugLog = takeDebugLog();
+            } else {
+                // Keep the global debug logger clean even when detailed logs are off.
+                takeDebugLog();
+            }
 
             if (!move.valid) {
                 stats.gameOver = true;
                 stats.gameOverReason = GameOverReason::InvalidMove;
+                if (config.recordDecisionLog) {
+                    logEntry.geometricMoves = 0;
+                    logEntry.safeMoves = 0;
+                    logEntry.selectedSafe = false;
+                    logEntry.simulation = SimulationResult{};
+                    decisionLogs[static_cast<std::size_t>(game)].push_back(std::move(logEntry));
+                }
                 break;
             }
 
@@ -265,26 +350,40 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
             if (geometricMoves.empty()) {
                 stats.gameOver = true;
                 stats.gameOverReason = GameOverReason::NoGeometricMove;
+                if (config.recordDecisionLog) {
+                    logEntry.geometricMoves = 0;
+                    logEntry.safeMoves = 0;
+                    logEntry.selectedSafe = false;
+                    logEntry.simulation = SimulationResult{};
+                    decisionLogs[static_cast<std::size_t>(game)].push_back(std::move(logEntry));
+                }
                 break;
             }
 
             const SimulationResult sim = Simulator::drop(board, pieces[0], move);
-            if (sim.gameOver && !sim.allClear) {
-                int safeMoves = 0;
+            int safeMoves = 0;
+            if (config.recordDecisionLog || (sim.gameOver && !sim.allClear)) {
                 for (const auto& candidateMove : geometricMoves) {
                     const SimulationResult candidateSim =
                         Simulator::drop(board, pieces[0], candidateMove);
-                    if (!candidateSim.gameOver || candidateSim.allClear) {
-                        ++safeMoves;
-                    }
+                    if (!candidateSim.gameOver || candidateSim.allClear) ++safeMoves;
                 }
+            }
+
+            if (config.recordDecisionLog) {
+                logEntry.geometricMoves = static_cast<int>(geometricMoves.size());
+                logEntry.safeMoves = safeMoves;
+                logEntry.selectedSafe = !sim.gameOver || sim.allClear;
+                logEntry.simulation = sim;
+                decisionLogs[static_cast<std::size_t>(game)].push_back(std::move(logEntry));
+            }
+
+            if (sim.gameOver && !sim.allClear) {
                 stats.safeMovesAtEnd = safeMoves;
                 stats.geometricMovesAtEnd = static_cast<int>(geometricMoves.size());
-                if (safeMoves == 0) {
-                    stats.gameOverReason = GameOverReason::NoSafeMove;
-                } else {
-                    stats.gameOverReason = GameOverReason::SelectedDeathWithSafeMove;
-                }
+                stats.gameOverReason = safeMoves == 0
+                    ? GameOverReason::NoSafeMove
+                    : GameOverReason::SelectedDeathWithSafeMove;
                 stats.gameOver = true;
                 board = sim.board;
                 break;
@@ -365,6 +464,10 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
         }
     }
 
+    // The benchmark owns the detailed logger. Do not leak benchmark traces into
+    // normal-play debug logging after this call returns.
+    setDebugLogging(false);
+
     const auto benchmarkEnd = std::chrono::steady_clock::now();
     const double wallMs = std::chrono::duration<double, std::milli>(
         benchmarkEnd - benchmarkStart
@@ -392,7 +495,7 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
 
     std::ostringstream json;
     json << "{";
-    json << "\"version\":3,";
+    json << "\"version\":4,";
     json << "\"games\":" << config.games << ",";
     json << "\"turns\":" << config.turns << ",";
     json << "\"seed\":" << config.seed << ",";
@@ -445,7 +548,68 @@ std::string runChainBenchmark(const ChainBenchmarkConfig& rawConfig) {
     json << "],";
     json << "\"averageThinkMs\":" << jsonNumber(avgThinkMs) << ",";
     json << "\"totalWallMs\":" << jsonNumber(wallMs) << ",";
-    json << "\"deterministic\":" << jsonBool(true);
+    json << "\"recordDecisionLog\":" << jsonBool(config.recordDecisionLog) << ",";
+    json << "\"gameSummaries\":[";
+    if (config.recordDecisionLog) {
+        for (std::size_t game = 0; game < decisionLogs.size(); ++game) {
+            if (game > 0) json << ",";
+            int gameMax = 0;
+            int gameScore = 0;
+            int loggedTurns = 0;
+            bool gameOver = false;
+            for (const auto& d : decisionLogs[game]) {
+                gameMax = std::max(gameMax, d.simulation.chains);
+                gameScore += d.simulation.score;
+                ++loggedTurns;
+                gameOver = gameOver || (d.simulation.gameOver && !d.simulation.allClear);
+            }
+            json << "{\"game\":" << game
+                 << ",\"maxChain\":" << gameMax
+                 << ",\"score\":" << gameScore
+                 << ",\"loggedTurns\":" << loggedTurns
+                 << ",\"gameOver\":" << jsonBool(gameOver) << "}";
+        }
+    }
+    json << "],";
+    json << "\"decisionLog\":";
+    if (!config.recordDecisionLog) {
+        json << "[]";
+    } else {
+        json << "[";
+        for (std::size_t game = 0; game < decisionLogs.size(); ++game) {
+            if (game > 0) json << ",";
+            json << "{\"game\":" << game << ",\"turns\":[";
+            const auto& logs = decisionLogs[game];
+            for (std::size_t i = 0; i < logs.size(); ++i) {
+                if (i > 0) json << ",";
+                const auto& d = logs[i];
+                json << "{\"turn\":" << d.turn
+                     << ",\"preBoard\":\"" << boardCompact(d.preBoard) << "\""
+                     << ",\"current\":";
+                appendPairJson(json, d.current);
+                json << ",\"next1\":";
+                if (d.hasNext1) appendPairJson(json, d.next1); else json << "null";
+                json << ",\"next2\":";
+                if (d.hasNext2) appendPairJson(json, d.next2); else json << "null";
+                json << ",\"move\":{\"x\":" << d.selected.x
+                     << ",\"rotation\":" << d.selected.rotation
+                     << ",\"valid\":" << jsonBool(d.selected.valid) << "}"
+                     << ",\"geometricMoves\":" << d.geometricMoves
+                     << ",\"safeMoves\":" << d.safeMoves
+                     << ",\"selectedSafe\":" << jsonBool(d.selectedSafe)
+                     << ",\"thinkMicros\":" << d.thinkMicros
+                     << ",\"postBoard\":\"" << boardCompact(d.simulation.board) << "\""
+                     << ",\"chains\":" << d.simulation.chains
+                     << ",\"score\":" << d.simulation.score
+                     << ",\"gameOver\":" << jsonBool(d.simulation.gameOver)
+                     << ",\"allClear\":" << jsonBool(d.simulation.allClear)
+                     << ",\"debugLog\":\"" << jsonEscape(d.debugLog) << "\"}";
+            }
+            json << "]}";
+        }
+        json << "]";
+    }
+    json << ",\"deterministic\":" << jsonBool(true);
     json << "}";
 
     return json.str();

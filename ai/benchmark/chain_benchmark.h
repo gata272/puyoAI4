@@ -13,6 +13,9 @@ struct ChainBenchmarkConfig {
     // Print one progress line per completed game. Enabled for the browser and
     // CLI benchmark so long runs visibly advance instead of appearing stuck.
     bool progress = true;
+    // Record a per-turn decision trace in the returned JSON. This is intended
+    // for benchmark analysis and is independent of normal-play logging.
+    bool recordDecisionLog = true;
 };
 
 // Runs a deterministic, single-player benchmark. Every configuration using
