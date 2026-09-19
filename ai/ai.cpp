@@ -1,6 +1,9 @@
 #include "ai.h"
 #include "simulation/simulator.h"
 #include "search/move_generator.h"
+#include "evaluation/debug_log.h"
+
+#include <sstream>
 
 #include <algorithm>
 
@@ -61,11 +64,23 @@ Move AI::chooseMove(
             }
             const auto gtrSim = Simulator::drop(board, pieces[0], gtrMove);
             if (!safeExists || !gtrSim.gameOver || gtrSim.allClear) {
+                if (debugLoggingEnabled()) {
+                    std::ostringstream oss;
+                    oss << "[AI-DECISION] mode=GTR turn=" << turn
+                        << " pattern=" << patternName_
+                        << " move=(" << gtrMove.x << "," << gtrMove.rotation << ")"
+                        << " gtrGameOver=" << (gtrSim.gameOver ? 1 : 0)
+                        << " safeExists=" << (safeExists ? 1 : 0) << "\n";
+                    debugLog(oss.str());
+                }
                 return gtrMove;
             }
         }
     }
 
+    if (debugLoggingEnabled() && turn >= 0 && turn < 3) {
+        debugLog("[AI-DECISION] mode=GTR_FALLBACK reason=unsafe_gtr\n");
+    }
     patternName_.clear();
 
     return search_.chooseMove(
