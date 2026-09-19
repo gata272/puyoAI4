@@ -51,10 +51,12 @@ make benchmark
 
 ## Maximum-chain-focused search
 
-The current production baseline is depth 6 / beam width 12 with six total
-pairs available to the search. Benchmark settings can override this. Results
-should be compared using identical `seed`, game count, turn count, depth and
-beam width except for the single variable being tested.
+The current production baseline uses the visible current pair plus the next two
+pairs (three pairs total), with the normal default of depth 3 / beam width 24.
+The search must not depend on hidden future pieces. Benchmark settings can
+override depth/Beam, but the available piece queue remains limited by the data
+passed to the AI. Results should be compared using identical `seed`, game count,
+turn count, depth and beam width except for the single variable being tested.
 
 The primary research metric is maximum chain per game. Average maximum chain,
 median, p90, threshold rates (5/8/10/12), survival, score and thinking time
@@ -88,3 +90,10 @@ are secondary metrics.
 ### ブラウザでの進行表示
 
 ベンチマークはWeb Worker内でWASMを実行するため、C++の標準出力だけに依存せず、WASMからWorkerへ進行メッセージを送信します。ブラウザの開発者コンソールにはゲームごとに `Game n/N` が表示され、設定画面のステータスにも現在の進行数が表示されます。
+
+### ログの保存・コピー
+
+ベンチマーク完了後、結果欄に「測定ログをコピー」と「測定ログをファイル保存」が表示されます。
+前者は進行ログ・死亡直前診断・最終集計をクリップボードへコピーし、後者は同じ内容をUTF-8の
+`.log.txt` ファイルとして保存します。長時間の100ゲーム測定でも、コンソールから手作業でログを
+回収する必要はありません。
