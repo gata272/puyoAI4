@@ -19,6 +19,7 @@
 #include <unordered_map>
 #include <cstdint>
 #include <array>
+#include <numeric>
 
 namespace puyo {
 namespace {
@@ -50,6 +51,7 @@ struct Node {
     bool hasRootSurvival = false;
     int futureGeometricMoves = -1;
     int bestNextGeometricMoves = -1;
+    int bestNextSafeMoves = -1;
     double survivalScore = 0.0;
     bool hasSurvival = false;
     bool gameOver = false;
@@ -147,6 +149,7 @@ std::vector<Node> expandNode(
                                      parent.hasFeatures ? &parent.features : nullptr,
                                      &childFeatures)
                      + chainReward(sim.chains);
+
         if (deathMove) local -= kDeathPenalty;
 
         Node candidate;
@@ -174,6 +177,7 @@ std::vector<Node> expandNode(
         candidate.hasRootSurvival = parent.hasRootSurvival;
         candidate.futureGeometricMoves = -1;
         candidate.bestNextGeometricMoves = -1;
+        candidate.bestNextSafeMoves = -1;
         candidate.survivalScore = 0.0;
         candidate.hasSurvival = false;
         candidate.gameOver = deathMove;
@@ -203,11 +207,15 @@ double survivalCorrection(const Node& n) {
     );
     const double protection = 1.0 - 0.08 * asset;
     const bool imminent = n.futureSafeMoves >= 0 && n.futureSafeMoves <= 1;
+    const bool narrow = n.futureSafeMoves >= 0 && n.futureSafeMoves <= 3;
     const bool collapsing =
-        n.futureSafeMoves >= 0 && n.futureSafeMoves <= 2 &&
+        n.futureSafeMoves >= 0 && n.futureSafeMoves <= 3 &&
         n.previousFutureSafeMoves >= 0 &&
         n.previousFutureSafeMoves - n.futureSafeMoves >= 2;
-    if (!imminent && !collapsing) return 0.0;
+    const bool weakEscape =
+        n.futureSafeMoves >= 0 && n.futureSafeMoves <= 3 &&
+        n.bestNextSafeMoves >= 0 && n.bestNextSafeMoves <= 1;
+    if (!imminent && !narrow && !collapsing && !weakEscape) return 0.0;
     return n.survivalScore * std::clamp(protection, 0.52, 1.0);
 }
 
@@ -230,9 +238,54 @@ void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
     std::vector<Node> selected;
     selected.reserve(static_cast<std::size_t>(beamWidth));
 
+    // First reserve a small number of genuinely safer states when the
+    // frontier is entering the danger zone.  This is deliberately bounded:
+    // chain-building states still occupy most of the beam, but one heuristic
+    // mistake cannot erase every escape route at once.
+    bool dangerPresent = false;
+    for (const auto& node : candidates) {
+        const auto h = node.board.heights();
+        if (h[2] >= 8 || *std::max_element(h.begin(), h.end()) >= 10) {
+            dangerPresent = true;
+            break;
+        }
+    }
+
+    if (dangerPresent) {
+        std::vector<const Node*> safety;
+        safety.reserve(candidates.size());
+        for (const auto& node : candidates) {
+            if (node.hasSurvival) safety.push_back(&node);
+        }
+        std::sort(safety.begin(), safety.end(), [](const Node* a, const Node* b) {
+            const int as = a->futureSafeMoves;
+            const int bs = b->futureSafeMoves;
+            if (as != bs) return as > bs;
+            if (a->bestNextSafeMoves != b->bestNextSafeMoves)
+                return a->bestNextSafeMoves > b->bestNextSafeMoves;
+            if (a->maxChain != b->maxChain) return a->maxChain > b->maxChain;
+            return a->score > b->score;
+        });
+
+        // At most a quarter of the beam is a survival reserve.  Prefer
+        // chain-preserving survivors when the safety values are equal.
+        const int reserve = std::min(
+            std::max(1, beamWidth / 4), beamWidth);
+        for (const Node* node : safety) {
+            if (static_cast<int>(selected.size()) >= reserve) break;
+            bool duplicate = false;
+            for (const auto& existing : selected) {
+                if (existing.boardHash == node->boardHash) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) selected.push_back(*node);
+        }
+    }
+
     // Keep a small root-action diversity reserve. This prevents one attractive
-    // first move from occupying the entire beam before the more informative
-    // virtual-fire rerank is applied at later layers.
+    // first move from occupying the entire beam before virtual-fire refinement.
     const int diversitySlots = std::min(6, beamWidth);
     bool seenRoot[BOARD_WIDTH][4]{};
     for (const auto& node : candidates) {
@@ -264,14 +317,20 @@ void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
 struct SurvivalCacheKey {
     std::uint64_t board = 0;
     std::uint16_t pair = 0;
+    std::uint16_t nextNextPair = 0;
     bool operator==(const SurvivalCacheKey& other) const {
-        return board == other.board && pair == other.pair;
+        return board == other.board &&
+               pair == other.pair &&
+               nextNextPair == other.nextNextPair;
     }
 };
 
 struct SurvivalCacheKeyHash {
     std::size_t operator()(const SurvivalCacheKey& key) const {
-        std::uint64_t x = key.board ^ (static_cast<std::uint64_t>(key.pair) * 0x9e3779b97f4a7c15ULL);
+        std::uint64_t x =
+            key.board ^
+            (static_cast<std::uint64_t>(key.pair) * 0x9e3779b97f4a7c15ULL) ^
+            (static_cast<std::uint64_t>(key.nextNextPair) * 0xbf58476d1ce4e5b9ULL);
         x ^= x >> 30;
         x *= 0xbf58476d1ce4e5b9ULL;
         x ^= x >> 27;
@@ -303,15 +362,24 @@ void applySurvivalProbe(
         Node& node = candidates[static_cast<std::size_t>(i)];
         const auto heights = node.board.heights();
         const int maxHeight = *std::max_element(heights.begin(), heights.end());
-        // Do not disturb normal construction while the board has ample room.
-        // The survival correction is activated only in the danger zone where
-        // the benchmark showed the characteristic mobility collapse.
-        if (heights[2] < 11 && maxHeight < 13) continue;
+        // Start measuring before the literal game-over line.  The dangerous
+        // column is column 2, but a tall neighboring stack can make the next
+        // horizontal/rotated pair collapse into it.  We therefore begin the
+        // probe in the transition zone and let the score remain neutral while
+        // mobility is still comfortable.
+        if (heights[2] < 8 && maxHeight < 10) continue;
         const int previousSafeMoves = node.previousFutureSafeMoves;
         const int previousGeometricMoves = node.previousFutureGeometricMoves;
         const SurvivalCacheKey key{
             node.boardHash,
-            static_cast<std::uint16_t>((static_cast<int>(next->main) << 8) | static_cast<int>(next->sub))
+            static_cast<std::uint16_t>(
+                (static_cast<int>(next->main) << 8) |
+                static_cast<int>(next->sub)),
+            nextNext
+                ? static_cast<std::uint16_t>(
+                    (static_cast<int>(nextNext->main) << 8) |
+                    static_cast<int>(nextNext->sub))
+                : static_cast<std::uint16_t>(0)
         };
         auto it = cache.find(key);
         if (it == cache.end()) {
@@ -321,6 +389,7 @@ void applySurvivalProbe(
         node.futureSafeMoves = h.safeMoves;
         node.futureGeometricMoves = h.geometricMoves;
         node.bestNextGeometricMoves = h.bestNextGeometricMoves;
+        node.bestNextSafeMoves = h.bestNextSafeMoves;
         node.survivalScore = survivalHorizonScore(h, previousSafeMoves, previousGeometricMoves);
         // Keep the root-level mobility measurement attached to the root action
         // all the way to the final beam. It can then be used for a final safety
@@ -398,6 +467,7 @@ void debugBeamSummary(const std::vector<Node>& beam, int depth, int beamWidth) {
             << " prevSafe=" << x.previousFutureSafeMoves
             << " geomNext=" << x.futureGeometricMoves
             << " next2Geom=" << x.bestNextGeometricMoves
+            << " next2Safe=" << x.bestNextSafeMoves
             << " survival=" << x.survivalScore
             << " rootSafe=" << x.rootFutureSafeMoves
             << " structure=" << x.structure
@@ -494,7 +564,12 @@ Move chooseRoot(
         // smaller top-M budget.
         if (depth == 0) {
             applyVirtualRerank(next, std::min(12, activeBeamWidth));
-            applySurvivalProbe(next, pieces, depth + 1, std::min(12, activeBeamWidth), survivalCache);
+            // The first move is too important to sample only the top-scoring
+            // half of the legal placements.  Probe every root child so a
+            // survival-safe chain-preserving move cannot disappear before the
+            // final root comparison.
+            applySurvivalProbe(next, pieces, depth + 1,
+                               static_cast<int>(next.size()), survivalCache);
             std::sort(next.begin(), next.end(), [](const Node& a, const Node& b) {
                 return finalUtility(a) > finalUtility(b);
             });
@@ -525,7 +600,23 @@ Move chooseRoot(
         next.swap(uniqueNext);
 
         if (depth > 0) {
-            applySurvivalProbe(next, pieces, depth + 1, std::min(12, activeBeamWidth), survivalCache);
+            bool dangerPresent = false;
+            for (const auto& candidate : next) {
+                const auto h = candidate.board.heights();
+                const int maxH = *std::max_element(h.begin(), h.end());
+                if (h[2] >= 8 || maxH >= 10) {
+                    dangerPresent = true;
+                    break;
+                }
+            }
+            // In the danger zone, evaluate the whole frontier before pruning.
+            // This is a multi-objective beam: chain construction keeps its
+            // normal score, while survival gets a chance to reserve an escape
+            // route.  On low boards we retain the old cheap top-M probe.
+            const int probeLimit = dangerPresent
+                ? static_cast<int>(next.size())
+                : std::min(12, activeBeamWidth);
+            applySurvivalProbe(next, pieces, depth + 1, probeLimit, survivalCache);
         }
 
         pruneBeam(next, activeBeamWidth);
@@ -601,13 +692,16 @@ Move chooseRoot(
     if (best->hasRootSurvival && best->rootFutureSafeMoves <= 1) {
         for (const auto& node : beam) {
             if (!node.root.valid || !node.hasRootSurvival || node.rootFutureSafeMoves < 2) continue;
-            const double utilityGap = finalUtility(*best) - finalUtility(node);
+
             // Never trade away an already-found larger chain merely for
             // survival. Rescue is only allowed among equal-max-chain roots.
             if (node.maxChain >= best->maxChain &&
-                utilityGap <= 6000.0 &&
                 node.rootFutureSafeMoves > selected->rootFutureSafeMoves) {
-                selected = &node;
+                const bool strongEscape =
+                    node.rootFutureSafeMoves >= 4 ||
+                    (node.rootFutureSafeMoves >= 2 &&
+                     node.bestNextSafeMoves >= 2);
+                if (strongEscape) selected = &node;
             }
         }
     }
