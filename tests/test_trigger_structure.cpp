@@ -25,6 +25,10 @@ int main() {
     // state, but becomes fireable after the hypothetical B trigger is removed.
     assert(triggerRelayScore(relay) > 0.0);
     assert(postTriggerTailScore(relay) > 0.0);
+    const auto viability = analyzeTriggerViability(relay);
+    assert(viability.bestPath >= 2);
+    assert(viability.viableTriggers >= 1);
+    assert(triggerViabilityScore(viability) > 0.0);
 
     // A real already-fired group should not receive a large latent-route score
     // merely because it is large.
