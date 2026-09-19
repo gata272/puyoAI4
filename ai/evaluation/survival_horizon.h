@@ -12,9 +12,15 @@ struct SurvivalHorizon {
     int safeMoves = -1;
 
     // Among safe placements of `next`, the largest number of geometric
-    // placements available for `nextNext`. This is intentionally geometric
-    // rather than "safe" to keep the horizon probe bounded and deterministic.
+    // placements available for `nextNext`.
     int bestNextGeometricMoves = -1;
+
+    // A stronger two-step signal than geometric mobility alone.  We count the
+    // largest number of actually safe placements for nextNext from any safe
+    // next placement.  This is only evaluated when the first horizon is
+    // narrow, so it remains a cheap escape-route probe rather than a second
+    // full search.
+    int bestNextSafeMoves = -1;
 };
 
 SurvivalHorizon analyzeSurvivalHorizon(

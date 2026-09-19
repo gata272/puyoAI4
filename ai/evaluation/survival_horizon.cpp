@@ -22,6 +22,7 @@ SurvivalHorizon analyzeSurvivalHorizon(
     if (moves.empty()) {
         out.safeMoves = 0;
         out.bestNextGeometricMoves = nextNext ? 0 : -1;
+        out.bestNextSafeMoves = nextNext ? 0 : -1;
         return out;
     }
 
@@ -99,13 +100,27 @@ SurvivalHorizon analyzeSurvivalHorizon(
     // Only inspect the second geometric horizon when the first horizon is
     // narrow. On exact-safety boards this uses the resolved post-chain board,
     // so a useful trigger-clearing move is not unfairly penalized.
-    if (nextNext && out.safeMoves <= 3) {
+    if (nextNext && out.safeMoves <= 4) {
         out.bestNextGeometricMoves = 0;
+        out.bestNextSafeMoves = 0;
         for (const Board& projected : safeBoards) {
+            const auto nextMoves = generateLegalMoves(projected, *nextNext);
             out.bestNextGeometricMoves = std::max(
                 out.bestNextGeometricMoves,
-                static_cast<int>(generateLegalMoves(projected, *nextNext).size())
+                static_cast<int>(nextMoves.size())
             );
+
+            // Use the exact simulator here.  The cheap first-horizon probe can
+            // deliberately avoid resolution on healthy boards, but a
+            // two-step escape signal must not call a trigger-clearing move
+            // "unsafe" merely because gravity/chain resolution was omitted.
+            int safeSecond = 0;
+            for (const Move& move : nextMoves) {
+                const SimulationResult sim =
+                    Simulator::drop(projected, *nextNext, move);
+                if (!sim.gameOver || sim.allClear) ++safeSecond;
+            }
+            out.bestNextSafeMoves = std::max(out.bestNextSafeMoves, safeSecond);
         }
     }
 
@@ -123,23 +138,36 @@ double survivalHorizonScore(
     // space. Comfortable mobility receives no reward. The negative region is
     // concentrated near collapse so the chain evaluator remains dominant.
     static constexpr double safePenalty[] = {
-        -42000.0, // 0
-        -15000.0, // 1
-        -6500.0,  // 2
-        -1800.0,  // 3
-        0.0,      // 4
-        0.0,      // 5
-        0.0,      // 6
-        0.0       // 7+
+        -120000.0, // 0
+        -50000.0,  // 1
+        -18000.0,  // 2
+        -4500.0,   // 3
+        0.0,       // 4
+        0.0,       // 5
+        0.0,       // 6
+        0.0        // 7+
     };
     const int safeIndex = std::min(horizon.safeMoves, 7);
     double score = safePenalty[safeIndex];
 
-    if (horizon.bestNextGeometricMoves >= 0 && horizon.safeMoves <= 3) {
+
+    if (horizon.bestNextGeometricMoves >= 0 && horizon.safeMoves <= 4) {
         score += std::clamp(
             static_cast<double>(horizon.bestNextGeometricMoves - 8) * 300.0,
             -3000.0,
             3000.0
+        );
+    }
+
+    // Prefer an actual escape route, not merely a board on which the next
+    // piece happens to fit geometrically.  This term is only meaningful in
+    // the narrow first-horizon region, so it cannot turn healthy construction
+    // into a generic "maximize mobility" policy.
+    if (horizon.bestNextSafeMoves >= 0 && horizon.safeMoves <= 4) {
+        score += std::clamp(
+            static_cast<double>(horizon.bestNextSafeMoves - 3) * 1200.0,
+            -6000.0,
+            4500.0
         );
     }
 
@@ -159,7 +187,7 @@ double survivalHorizonScore(
         else if (geometricCollapse == 1) score -= 150.0;
     }
 
-    return std::clamp(score, -85000.0, 0.0);
+    return std::clamp(score, -150000.0, 0.0);
 }
 
 } // namespace puyo
