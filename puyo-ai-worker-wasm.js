@@ -167,8 +167,9 @@ self.onmessage = async (event) => {
             ? getPatternName()
             : '';
 
+        let debug = '';
         if (msg.debug && getDebugLog) {
-            const debug = getDebugLog();
+            debug = getDebugLog();
             if (debug) self.postMessage({ type: 'log', message: debug });
         }
 
@@ -176,7 +177,8 @@ self.onmessage = async (event) => {
             type: 'move',
             x,
             rotation,
-            patternName: patternName === 'NONE' ? '' : patternName
+            patternName: patternName === 'NONE' ? '' : patternName,
+            debugLog: debug
         });
     } catch (error) {
         self.postMessage({

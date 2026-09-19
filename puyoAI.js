@@ -23,7 +23,11 @@
         autoEnabled: false,
         busy: false,
         turn: 0,
-        timer: null
+        timer: null,
+        decisionLogs: [],
+        pendingDecision: null,
+        logSessionStartedAt: new Date().toISOString(),
+        gameId: 1
     };
 
 
@@ -179,6 +183,14 @@
             }
 
             const pattern = msg.patternName;
+            if (STATE.pendingDecision) {
+                STATE.pendingDecision.selected = {
+                    x: msg.x | 0,
+                    rotation: msg.rotation | 0
+                };
+                STATE.pendingDecision.patternName = pattern === 'NONE' ? '' : (pattern || '');
+                STATE.pendingDecision.internalDebugLog = String(msg.debugLog || '');
+            }
             if (pattern) {
                 status(`AI: GTR ${pattern}`);
             } else {
@@ -213,6 +225,200 @@
         }, 20);
     }
 
+    function snapshotBoard() {
+        const board = Array.isArray(global.board) ? global.board : [];
+        return Array.from({ length: CONFIG.HEIGHT }, (_, y) =>
+            Array.from({ length: CONFIG.WIDTH }, (_, x) => {
+                const value = board[y] && Number.isFinite(board[y][x])
+                    ? board[y][x]
+                    : 0;
+                return value | 0;
+            })
+        );
+    }
+
+    function boardHeights(board) {
+        return Array.from({ length: CONFIG.WIDTH }, (_, x) => {
+            for (let y = CONFIG.HEIGHT - 1; y >= 0; --y) {
+                if (board[y][x] !== 0) return y + 1;
+            }
+            return 0;
+        });
+    }
+
+    function pieceSnapshot(pieces) {
+        return pieces.map(pair => ({
+            main: pair.mainColor | 0,
+            sub: pair.subColor | 0
+        }));
+    }
+
+    function nowMs() {
+        return typeof performance !== 'undefined' && performance.now
+            ? performance.now()
+            : Date.now();
+    }
+
+    function beginDecisionLog(turn, pieces, depth, beamWidth, board) {
+        STATE.pendingDecision = {
+            gameId: STATE.gameId,
+            turn,
+            startedAt: new Date().toISOString(),
+            thinkStartMs: nowMs(),
+            depth,
+            beamWidth,
+            pieces: pieceSnapshot(pieces),
+            preBoard: board,
+            preHeights: boardHeights(board),
+            scoreBefore: Number.isFinite(global.score) ? global.score : null,
+            selected: null,
+            patternName: '',
+            internalDebugLog: '',
+            resolved: false
+        };
+    }
+
+    function updateDecisionLogStatus() {
+        const el = document.getElementById('ai-decision-log-status');
+        if (!el) return;
+        el.textContent = `記録: ${STATE.decisionLogs.length}手` +
+            (STATE.pendingDecision ? '（思考中）' : '');
+    }
+
+    global.__aiNotifyPlacement = function (result) {
+        const pending = STATE.pendingDecision;
+        if (!pending) return;
+        const placementBoard = Array.isArray(result?.board)
+            ? result.board
+            : snapshotBoard();
+        pending.placementBoard = placementBoard;
+        pending.placementHeights = boardHeights(placementBoard);
+        pending.placementGroups = Array.isArray(result?.groups)
+            ? result.groups
+            : [];
+        pending.placementScore = Number.isFinite(result?.score)
+            ? result.score
+            : null;
+    };
+
+    function appendResolvedDecision(result) {
+        const pending = STATE.pendingDecision;
+        if (!pending) return;
+
+        const postBoard = Array.isArray(result?.board)
+            ? result.board
+            : snapshotBoard();
+        const completed = {
+            ...pending,
+            thinkMs: Math.max(0, nowMs() - pending.thinkStartMs),
+            postBoard,
+            postHeights: boardHeights(postBoard),
+            chain: Number.isFinite(result?.chain) ? result.chain : 0,
+            scoreBefore: Number.isFinite(pending.scoreBefore) ? pending.scoreBefore : (Number.isFinite(result?.scoreBefore) ? result.scoreBefore : null),
+            scoreAfter: Number.isFinite(result?.scoreAfter) ? result.scoreAfter : null,
+            scoreDelta: Number.isFinite(pending.scoreBefore) && Number.isFinite(result?.scoreAfter)
+                ? result.scoreAfter - pending.scoreBefore
+                : null,
+            gameState: result?.gameState || global.gameState || 'unknown',
+            gameOver: !!result?.gameOver,
+            pendingOjama: Number.isFinite(result?.pendingOjama) ? result.pendingOjama : null,
+            resolvedAt: new Date().toISOString(),
+            resolved: true
+        };
+        delete completed.thinkStartMs;
+        STATE.decisionLogs.push(completed);
+        STATE.pendingDecision = null;
+        updateDecisionLogStatus();
+    }
+
+    function startNewGameLog() {
+        STATE.pendingDecision = null;
+        STATE.gameId += 1;
+        updateDecisionLogStatus();
+    }
+
+    function clearDecisionLogSession() {
+        STATE.decisionLogs = [];
+        STATE.pendingDecision = null;
+        STATE.logSessionStartedAt = new Date().toISOString();
+        STATE.gameId = 1;
+        updateDecisionLogStatus();
+    }
+
+    function getDecisionLogPayload() {
+        const logs = STATE.decisionLogs.slice();
+        if (STATE.pendingDecision) logs.push({
+            ...STATE.pendingDecision,
+            thinkMs: Math.max(0, nowMs() - STATE.pendingDecision.thinkStartMs),
+            status: 'pending'
+        });
+        return {
+            format: 'puyoAI-decision-log-v1',
+            generatedAt: new Date().toISOString(),
+            sessionStartedAt: STATE.logSessionStartedAt,
+            gameCount: new Set(logs.map(entry => entry.gameId)).size,
+            settings: getSearchSettings(),
+            entries: logs
+        };
+    }
+
+    function downloadDecisionLog() {
+        const payload = getDecisionLogPayload();
+        if (!payload.entries.length) {
+            status('AI手ログがまだありません');
+            return;
+        }
+        const text = JSON.stringify(payload, null, 2) + '\n';
+        const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        link.href = url;
+        link.download = `puyoAI-decision-log-${stamp}.json`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        status(`AI手ログを保存しました（${payload.entries.length}手）`);
+    }
+
+    async function copyDecisionLog() {
+        const payload = getDecisionLogPayload();
+        if (!payload.entries.length) {
+            status('AI手ログがまだありません');
+            return;
+        }
+        const text = JSON.stringify(payload, null, 2) + '\n';
+        try {
+            await navigator.clipboard.writeText(text);
+            status('AI手ログをクリップボードにコピーしました');
+        } catch (_) {
+            const area = document.createElement('textarea');
+            area.value = text;
+            area.style.position = 'fixed';
+            area.style.opacity = '0';
+            document.body.appendChild(area);
+            area.focus();
+            area.select();
+            let ok = false;
+            try { ok = document.execCommand('copy'); } catch (_) {}
+            area.remove();
+            status(ok ? 'AI手ログをクリップボードにコピーしました' : 'コピーに失敗しました');
+        }
+    }
+
+    global.downloadAIDecisionLog = downloadDecisionLog;
+    global.copyAIDecisionLog = copyDecisionLog;
+    global.clearAIDecisionLog = function () {
+        clearDecisionLogSession();
+        status('AI手ログをクリアしました');
+    };
+    global.getAIDecisionLog = getDecisionLogPayload;
+
+    global.__aiNotifyTurnResolved = function (result) {
+        appendResolvedDecision(result || {});
+    };
+
     function think() {
         if (!STATE.autoEnabled ||
             !STATE.workerReady ||
@@ -238,6 +444,9 @@
         );
 
         const searchSettings = getSearchSettings();
+        const inputBoard = snapshotBoard();
+        beginDecisionLog(STATE.turn, pieces, searchSettings.depth, searchSettings.beamWidth, inputBoard);
+        updateDecisionLogStatus();
         let debug = false;
         try {
             debug = localStorage.getItem('puyoAI.debugMode') === 'true';
@@ -257,6 +466,7 @@
     function resetAI() {
         STATE.turn = 0;
         STATE.busy = false;
+        startNewGameLog();
 
         if (STATE.worker && STATE.workerReady) {
             STATE.worker.postMessage({ type: 'reset' });

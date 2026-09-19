@@ -369,10 +369,28 @@ function applyPendingOjamaToBoard() {
     return true;
 }
 
+function notifyAITurnResolved(gameOver = false) {
+    if (typeof window.__aiNotifyTurnResolved !== 'function') return;
+    try {
+        window.__aiNotifyTurnResolved({
+            board: copyBoard(board),
+            chain: Number.isFinite(chainCount) ? chainCount : 0,
+            scoreBefore: null,
+            scoreAfter: Number.isFinite(score) ? score : null,
+            gameState,
+            gameOver: !!gameOver,
+            pendingOjama: Number.isFinite(pendingOjama) ? pendingOjama : null
+        });
+    } catch (error) {
+        console.warn('AI turn log notification failed:', error);
+    }
+}
+
 function triggerGameOver() {
     if (gameState === 'gameover') return;
 
     gameState = 'gameover';
+    notifyAITurnResolved(true);
     document.body.classList.add(BOARD_GAMEOVER_CLASS);
     clearInterval(dropTimer);
 
@@ -1167,6 +1185,22 @@ function lockPuyo() {
     renderBoard();
     updateUI();
 
+    if (typeof window.__aiNotifyPlacement === 'function') {
+        try {
+            const placementGroups = findConnectedPuyos().map(({ group, color }) => ({
+                color,
+                size: group.length
+            }));
+            window.__aiNotifyPlacement({
+                board: copyBoard(board),
+                groups: placementGroups,
+                score: Number.isFinite(score) ? score : null
+            });
+        } catch (error) {
+            console.warn('AI placement log notification failed:', error);
+        }
+    }
+
     gameState = 'chaining';
     chainCount = 0;
     chainAttackScoreBuffer = 0;
@@ -1300,6 +1334,7 @@ async function runChain() {
             generateNewPuyo();
         }
 
+        notifyAITurnResolved(false);
         startPuyoDropLoop();
         checkMobileControlsVisibility();
         renderBoard();
@@ -1351,6 +1386,7 @@ async function runChain() {
             generateNewPuyo();
         }
 
+        notifyAITurnResolved(false);
         startPuyoDropLoop();
         checkMobileControlsVisibility();
         renderBoard();
@@ -1718,6 +1754,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (typeof board !== 'undefined') window.board = board;
         if (typeof gameState !== 'undefined') window.gameState = gameState;
+        if (typeof score !== 'undefined') window.score = score;
         if (typeof nextQueue !== 'undefined') window.nextQueue = nextQueue;
         if (typeof queueIndex !== 'undefined') window.queueIndex = queueIndex;
         if (typeof hardDrop === 'function') window.hardDrop = hardDrop;

@@ -95,6 +95,18 @@
                 <button id="run-benchmark-button" onclick="runChainBenchmark()" disabled>最大連鎖ベンチマーク開始</button>
                 <div id="benchmark-status">準備中…</div>
                 <div id="benchmark-result"><div class="benchmark-empty">まだ測定していません。</div></div>
+                <div class="ai-decision-log-tools" style="margin-top:16px; border-top:1px solid #444; padding-top:12px; text-align:left;">
+                    <h3 style="font-size:1em; margin:0 0 8px 0;">AI 1手ログ</h3>
+                    <p style="font-size:0.72em; color:#999; line-height:1.45; margin:0 0 8px 0;">
+                        AIが1手ごとに見ていた盤面・NEXT・探索設定・選択手・Beam候補・生存評価・実際の連鎖結果をJSONファイルに保存します。
+                    </p>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                        <button type="button" onclick="downloadAIDecisionLog()">AI手ログを保存</button>
+                        <button type="button" onclick="copyAIDecisionLog()">AI手ログをコピー</button>
+                        <button type="button" onclick="clearAIDecisionLog()" style="grid-column:1 / -1;">AI手ログをクリア</button>
+                    </div>
+                    <div id="ai-decision-log-status" style="font-size:0.72em; color:#999; margin-top:6px;">記録: 0手</div>
+                </div>
             </div>
         </div>
     </div>
