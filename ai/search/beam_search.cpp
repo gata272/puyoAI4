@@ -18,6 +18,7 @@
 #include <vector>
 #include <unordered_map>
 #include <cstdint>
+#include <array>
 
 namespace puyo {
 namespace {
@@ -43,6 +44,7 @@ struct Node {
     bool hasVirtual = false;
     int futureSafeMoves = -1;
     int previousFutureSafeMoves = -1;
+    int previousFutureGeometricMoves = -1;
     int rootFutureSafeMoves = -1;
     double rootSurvivalScore = 0.0;
     bool hasRootSurvival = false;
@@ -51,6 +53,9 @@ struct Node {
     double survivalScore = 0.0;
     bool hasSurvival = false;
     bool gameOver = false;
+    std::uint64_t boardHash = 0;
+    Features features;
+    bool hasFeatures = false;
 };
 
 constexpr double kDiscount = 0.85;
@@ -89,6 +94,17 @@ double chainReward(int chains) {
            std::max(0.0, c - 15.0) * std::max(0.0, c - 15.0) * 15000.0;
 }
 
+std::uint64_t fastBoardHash(const Board& b) {
+    std::uint64_t h = 1469598103934665603ULL;
+    for (int y = 0; y < BOARD_HEIGHT; ++y) {
+        for (int x = 0; x < BOARD_WIDTH; ++x) {
+            h ^= static_cast<std::uint64_t>(static_cast<int>(b.get(x, y)) + 1);
+            h *= 1099511628211ULL;
+        }
+    }
+    return h;
+}
+
 std::vector<Node> expandNode(
     const Node& parent,
     const PuyoPair& pair,
@@ -125,13 +141,19 @@ std::vector<Node> expandNode(
         // Only terminal candidates pay the expensive ama-style quiet search.
         ctx.quiescenceDepth = (nextDepth >= maxDepth) ? 3 : 0;
 
-        double local = evaluate(sim.board, weights, ctx)
-                     + actionPenalty(parent.board, sim, move, weights)
+        const Features childFeatures = extractStaticFeatures(sim.board);
+        double local = evaluate(sim.board, weights, ctx, &childFeatures)
+                     + actionPenalty(parent.board, sim, move, weights,
+                                     parent.hasFeatures ? &parent.features : nullptr,
+                                     &childFeatures)
                      + chainReward(sim.chains);
         if (deathMove) local -= kDeathPenalty;
 
         Node candidate;
+        candidate.features = childFeatures;
+        candidate.hasFeatures = true;
         candidate.board = sim.board;
+        candidate.boardHash = fastBoardHash(candidate.board);
         candidate.root = parent.root.valid ? parent.root : move;
         candidate.maxChain = std::max(parent.maxChain, sim.chains);
         // Route/main-chain analysis is intentionally deferred to the terminal
@@ -146,6 +168,7 @@ std::vector<Node> expandNode(
         candidate.score = parent.score + local;
         candidate.futureSafeMoves = -1;
         candidate.previousFutureSafeMoves = parent.hasSurvival ? parent.futureSafeMoves : -1;
+        candidate.previousFutureGeometricMoves = parent.hasSurvival ? parent.futureGeometricMoves : -1;
         candidate.rootFutureSafeMoves = parent.rootFutureSafeMoves;
         candidate.rootSurvivalScore = parent.rootSurvivalScore;
         candidate.hasRootSurvival = parent.hasRootSurvival;
@@ -167,8 +190,35 @@ std::vector<Node> expandNode(
     return death;
 }
 
+double survivalCorrection(const Node& n) {
+    if (!n.hasSurvival) return 0.0;
+    // Protect prepared long-chain material from being traded away for a small
+    // amount of extra mobility. Survival becomes decisive only in the actual
+    // collapse zone; a board with strong exact-3/4-unit preparation is allowed
+    // to take a calculated risk.
+    const double asset = std::clamp(
+        n.features.chainUnit4 + 0.5 * n.features.chainUnit5 +
+        0.35 * n.features.handoffPotential,
+        0.0, 6.0
+    );
+    const double protection = 1.0 - 0.08 * asset;
+    const bool imminent = n.futureSafeMoves >= 0 && n.futureSafeMoves <= 1;
+    const bool collapsing =
+        n.futureSafeMoves >= 0 && n.futureSafeMoves <= 2 &&
+        n.previousFutureSafeMoves >= 0 &&
+        n.previousFutureSafeMoves - n.futureSafeMoves >= 2;
+    if (!imminent && !collapsing) return 0.0;
+    return n.survivalScore * std::clamp(protection, 0.52, 1.0);
+}
+
+double beamUtility(const Node& n) {
+    return n.score + survivalCorrection(n);
+}
+
 bool betterForBeam(const Node& a, const Node& b) {
-    if (a.score != b.score) return a.score > b.score;
+    const double ua = beamUtility(a);
+    const double ub = beamUtility(b);
+    if (ua != ub) return ua > ub;
     return a.maxChain > b.maxChain;
 }
 
@@ -211,11 +261,30 @@ void pruneBeam(std::vector<Node>& candidates, int beamWidth) {
     candidates.swap(selected);
 }
 
+struct SurvivalCacheKey {
+    std::uint64_t board = 0;
+    std::uint16_t pair = 0;
+    bool operator==(const SurvivalCacheKey& other) const {
+        return board == other.board && pair == other.pair;
+    }
+};
+
+struct SurvivalCacheKeyHash {
+    std::size_t operator()(const SurvivalCacheKey& key) const {
+        std::uint64_t x = key.board ^ (static_cast<std::uint64_t>(key.pair) * 0x9e3779b97f4a7c15ULL);
+        x ^= x >> 30;
+        x *= 0xbf58476d1ce4e5b9ULL;
+        x ^= x >> 27;
+        return static_cast<std::size_t>(x ^ (x >> 31));
+    }
+};
+
 void applySurvivalProbe(
     std::vector<Node>& candidates,
     const std::vector<PuyoPair>& pieces,
     int depth,
-    int probeLimit
+    int probeLimit,
+    std::unordered_map<SurvivalCacheKey, SurvivalHorizon, SurvivalCacheKeyHash>& cache
 ) {
     // At depth d, candidates have consumed pieces[d].  Probe only the next
     // visible pair (and its following geometric mobility) so this remains a
@@ -239,11 +308,20 @@ void applySurvivalProbe(
         // the benchmark showed the characteristic mobility collapse.
         if (heights[2] < 11 && maxHeight < 13) continue;
         const int previousSafeMoves = node.previousFutureSafeMoves;
-        const SurvivalHorizon h = analyzeSurvivalHorizon(node.board, next, nextNext);
+        const int previousGeometricMoves = node.previousFutureGeometricMoves;
+        const SurvivalCacheKey key{
+            node.boardHash,
+            static_cast<std::uint16_t>((static_cast<int>(next->main) << 8) | static_cast<int>(next->sub))
+        };
+        auto it = cache.find(key);
+        if (it == cache.end()) {
+            it = cache.emplace(key, analyzeSurvivalHorizon(node.board, next, nextNext)).first;
+        }
+        const SurvivalHorizon& h = it->second;
         node.futureSafeMoves = h.safeMoves;
         node.futureGeometricMoves = h.geometricMoves;
         node.bestNextGeometricMoves = h.bestNextGeometricMoves;
-        node.survivalScore = survivalHorizonScore(h, previousSafeMoves);
+        node.survivalScore = survivalHorizonScore(h, previousSafeMoves, previousGeometricMoves);
         // Keep the root-level mobility measurement attached to the root action
         // all the way to the final beam. It can then be used for a final safety
         // rescue without changing the intermediate construction search.
@@ -331,12 +409,18 @@ void debugBeamSummary(const std::vector<Node>& beam, int depth, int beamWidth) {
 }
 
 double finalUtility(const Node& n) {
+    // Survival is a correction term: on healthy boards survivalScore is zero,
+    // so the long-chain evaluator is unchanged. Once mobility collapses, the
+    // same beam search is allowed to reject a dangerous branch without making
+    // empty space a general objective.
+    const double survival = survivalCorrection(n);
     return n.score + static_cast<double>(n.maxChain) * 25000.0
          + n.virtualPotential
          + static_cast<double>(n.mainChain.length()) * 16000.0
          + n.mainChainScore * 0.50
          + n.construction * 0.06
-         - n.prematureRisk * 0.06;
+         - n.prematureRisk * 0.06
+         + survival;
 }
 
 bool betterFinal(const Node& a, const Node& b) {
@@ -374,9 +458,14 @@ Move chooseRoot(
     // globally through subsequent pieces.
     Node root;
     root.board = board;
+    root.boardHash = fastBoardHash(root.board);
+    root.features = extractStaticFeatures(board);
+    root.hasFeatures = true;
     root.mainChain = analyzeMainChain(board);
 
     std::vector<Node> beam = {root};
+    std::unordered_map<SurvivalCacheKey, SurvivalHorizon, SurvivalCacheKeyHash> survivalCache;
+    survivalCache.reserve(static_cast<std::size_t>(activeBeamWidth * 8));
 
     for (int depth = 0; depth < horizon; ++depth) {
         std::vector<Node> next;
@@ -405,7 +494,7 @@ Move chooseRoot(
         // smaller top-M budget.
         if (depth == 0) {
             applyVirtualRerank(next, std::min(12, activeBeamWidth));
-            applySurvivalProbe(next, pieces, depth + 1, std::min(12, activeBeamWidth));
+            applySurvivalProbe(next, pieces, depth + 1, std::min(12, activeBeamWidth), survivalCache);
             std::sort(next.begin(), next.end(), [](const Node& a, const Node& b) {
                 return finalUtility(a) > finalUtility(b);
             });
@@ -416,23 +505,12 @@ Move chooseRoot(
         // The current depth uses the same future queue for every node, so the
         // board itself is a sufficient state key here. This both removes
         // duplicate work and preserves the strongest root decision.
-        auto boardHash = [](const Board& b) {
-            std::uint64_t h = 1469598103934665603ULL;
-            for (int y = 0; y < BOARD_HEIGHT; ++y) {
-                for (int x = 0; x < BOARD_WIDTH; ++x) {
-                    h ^= static_cast<std::uint64_t>(static_cast<int>(b.get(x, y)) + 1);
-                    h *= 1099511628211ULL;
-                }
-            }
-            return h;
-        };
-
         std::unordered_map<std::uint64_t, std::size_t> transpositions;
         transpositions.reserve(next.size());
         std::vector<Node> uniqueNext;
         uniqueNext.reserve(next.size());
         for (auto& candidate : next) {
-            const auto key = boardHash(candidate.board);
+            const auto key = candidate.boardHash;
             const auto it = transpositions.find(key);
             if (it == transpositions.end()) {
                 transpositions.emplace(key, uniqueNext.size());
@@ -447,7 +525,7 @@ Move chooseRoot(
         next.swap(uniqueNext);
 
         if (depth > 0) {
-            applySurvivalProbe(next, pieces, depth + 1, std::min(12, activeBeamWidth));
+            applySurvivalProbe(next, pieces, depth + 1, std::min(12, activeBeamWidth), survivalCache);
         }
 
         pruneBeam(next, activeBeamWidth);
@@ -485,7 +563,7 @@ Move chooseRoot(
     // analysis only to the strongest virtual candidates.
     applyVirtualRerank(beam, std::min(18, static_cast<int>(beam.size())));
     if (horizon < static_cast<int>(pieces.size())) {
-        applySurvivalProbe(beam, pieces, horizon, static_cast<int>(beam.size()));
+        applySurvivalProbe(beam, pieces, horizon, static_cast<int>(beam.size()), survivalCache);
     }
     std::sort(beam.begin(), beam.end(), [](const Node& a, const Node& b) {
         return finalUtility(a) > finalUtility(b);
@@ -524,7 +602,11 @@ Move chooseRoot(
         for (const auto& node : beam) {
             if (!node.root.valid || !node.hasRootSurvival || node.rootFutureSafeMoves < 2) continue;
             const double utilityGap = finalUtility(*best) - finalUtility(node);
-            if (utilityGap <= 10000.0 && node.rootFutureSafeMoves > selected->rootFutureSafeMoves) {
+            // Never trade away an already-found larger chain merely for
+            // survival. Rescue is only allowed among equal-max-chain roots.
+            if (node.maxChain >= best->maxChain &&
+                utilityGap <= 6000.0 &&
+                node.rootFutureSafeMoves > selected->rootFutureSafeMoves) {
                 selected = &node;
             }
         }
