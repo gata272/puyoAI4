@@ -66,3 +66,16 @@ PuyoAI11 keeps the human-information constraint of three visible pairs, but chan
 The beam also reserves a potential elite so a quiet but promising construction is not removed solely because its immediate evaluator score is lower. Final selection uses accumulated search score plus a moderate actual-chain bonus and latent-potential bonus instead of lexicographic maximum-chain-first selection.
 
 This revision is deliberately conservative about hidden information: no future queue beyond the visible three pairs is read. The benchmark must be repeated on larger fixed seed corpora before claiming a statistically significant improvement.
+
+
+## Survival-aware chain revision
+
+The latest survival experiment adds an exact two-step escape-route signal,
+earlier danger-zone probing, a bounded survival reserve in beam pruning, and
+full root-child survival probing. The survival cache key includes both visible
+future pairs so the two-step measurement cannot be reused across incompatible
+queue contexts.
+
+The current benchmark diagnostics distinguish `no_safe_move` from
+`selected_death_with_safe_move`; future tuning should prioritize reducing the
+former without lowering the maximum-chain distribution.
