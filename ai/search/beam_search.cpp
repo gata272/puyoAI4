@@ -43,6 +43,9 @@ struct Node {
     double virtualPotential = 0.0;
     VirtualChainFeatures virtualFeatures;
     bool hasVirtual = false;
+    TriggerViability triggerViability;
+    double triggerViabilityScore = 0.0;
+    bool hasTriggerViability = false;
     int futureSafeMoves = -1;
     int previousFutureSafeMoves = -1;
     int previousFutureGeometricMoves = -1;
@@ -463,6 +466,9 @@ void debugBeamSummary(const std::vector<Node>& beam, int depth, int beamWidth) {
             << " virtual=" << x.virtualPotential
             << " vBest=" << x.virtualFeatures.bestChain
             << " vTop3=" << x.virtualFeatures.top3ChainSum
+            << " viability=" << x.triggerViabilityScore
+            << " vPath=" << x.triggerViability.bestPath
+            << " vTrig=" << x.triggerViability.viableTriggers
             << " safeNext=" << x.futureSafeMoves
             << " prevSafe=" << x.previousFutureSafeMoves
             << " geomNext=" << x.futureGeometricMoves
@@ -479,17 +485,38 @@ void debugBeamSummary(const std::vector<Node>& beam, int depth, int beamWidth) {
 }
 
 double finalUtility(const Node& n) {
-    // Survival is a correction term: on healthy boards survivalScore is zero,
-    // so the long-chain evaluator is unchanged. Once mobility collapses, the
-    // same beam search is allowed to reject a dangerous branch without making
-    // empty space a general objective.
+    // Virtual potential is a test of whether the current construction still
+    // has an actual route to a chain.  Route/structure/construction scores are
+    // useful only while that viability is intact. Without this gate, the AI
+    // can keep rewarding a visually convincing "long-chain shape" after its
+    // firing path has already disappeared.
     const double survival = survivalCorrection(n);
+
+    double constructionGate = 1.0;
+    if (n.hasVirtual) {
+        if (n.virtualPotential < -20000.0) constructionGate = 0.22;
+        else if (n.virtualPotential < 0.0) constructionGate = 0.38;
+        else if (n.virtualPotential < 20000.0) constructionGate = 0.62;
+        else if (n.virtualPotential < 60000.0) constructionGate = 0.84;
+    }
+
+    // When virtual firepower is weak, a real trigger-transfer path is the
+    // preferred recovery signal. It prevents "safe but short" construction
+    // from winning merely because it has a pleasant static shape.
+    const double viability = n.hasTriggerViability
+        ? n.triggerViabilityScore
+        : 0.0;
+
+    const double gatedConstruction =
+        (static_cast<double>(n.mainChain.length()) * 16000.0 +
+         n.mainChainScore * 0.50 +
+         n.construction * 0.06 -
+         n.prematureRisk * 0.06) * constructionGate;
+
     return n.score + static_cast<double>(n.maxChain) * 25000.0
          + n.virtualPotential
-         + static_cast<double>(n.mainChain.length()) * 16000.0
-         + n.mainChainScore * 0.50
-         + n.construction * 0.06
-         - n.prematureRisk * 0.06
+         + gatedConstruction
+         + viability * (constructionGate < 0.65 ? 0.72 : 0.22)
          + survival;
 }
 
@@ -672,6 +699,17 @@ Move chooseRoot(
         node.mainChainScore = mainChainConstructionScore(node.board, node.mainChain) * 0.05;
     }
 
+    // Trigger viability is a final tie-break/recovery signal. Evaluate the
+    // same small structural frontier that already pays the expensive route
+    // analysis; do not run hypothetical chain resolution for every terminal
+    // beam node.
+    for (int i = 0; i < structuralM; ++i) {
+        Node& node = beam[static_cast<std::size_t>(i)];
+        node.triggerViability = analyzeTriggerViability(node.board, node.triggerRoute);
+        node.triggerViabilityScore = triggerViabilityScore(node.triggerViability);
+        node.hasTriggerViability = true;
+    }
+
     const auto best = std::max_element(
         beam.begin(), beam.end(),
         [](const Node& a, const Node& b) {
@@ -718,6 +756,8 @@ Move chooseRoot(
             << " mainChain=" << selected->mainChain.length()
             << " construction=" << selected->construction
             << " prematureRisk=" << selected->prematureRisk
+            << " viability=" << selected->triggerViabilityScore
+            << " vPath=" << selected->triggerViability.bestPath
             << " mainRoute=";
         for (std::size_t i = 0; i < selected->mainChain.colors.size(); ++i) {
             if (i) oss << "->";
