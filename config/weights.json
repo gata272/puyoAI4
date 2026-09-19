@@ -26,10 +26,6 @@
     "tail_space": 80,
     "height_variance": -45,
     "edge_wall": 35,
-    "central_peak": -100,
-    "trigger_expansion_space": 180,
-    "edge_dead_end": -180,
-    "future_construction_space": 35,
     "tear": -250,
     "waste": -250,
     "long_chain_potential": 1200
