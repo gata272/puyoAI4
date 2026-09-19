@@ -87,7 +87,8 @@ const char* run_chain_benchmark(
     int turns,
     int seed,
     int depth,
-    int beamWidth
+    int beamWidth,
+    int recordDecisionLog
 ) {
     puyo::ChainBenchmarkConfig config;
     config.games = games;
@@ -95,6 +96,7 @@ const char* run_chain_benchmark(
     config.seed = seed;
     config.depth = depth;
     config.beamWidth = beamWidth;
+    config.recordDecisionLog = recordDecisionLog != 0;
     g_benchmarkResult = puyo::runChainBenchmark(config);
     return g_benchmarkResult.c_str();
 }
