@@ -57,6 +57,26 @@ struct Node {
     int bestNextSafeMoves = -1;
     double survivalScore = 0.0;
     bool hasSurvival = false;
+
+    // Path-level survival memory.  The previous implementation only scored the
+    // current node's mobility, so a branch could pass through a catastrophic
+    // 0-1-safe-move state and later look healthy again after a cheap probe.
+    // Keep the worst observed horizon and cumulative mobility loss along the
+    // whole searched path.
+    int worstFutureSafeMoves = 99;
+    int worstNext2SafeMoves = 99;
+    int survivalWarnings = 0;
+    int survivalDrop = 0;
+
+    // True, visible-piece trigger probe.  `virtualPotential` may use arbitrary
+    // colour pairs, so it can remain high even when the actual next pieces
+    // cannot fire the stored construction.  These fields measure the latter.
+    int trueTriggerPath = 0;
+    int trueImmediateChains = 0;
+    int trueFollowupChains = 0;
+    int trueTriggerMoves = 0;
+    int trueFollowupSafeMoves = 0;
+
     bool gameOver = false;
     std::uint64_t boardHash = 0;
     Features features;
@@ -183,6 +203,15 @@ std::vector<Node> expandNode(
         candidate.bestNextSafeMoves = -1;
         candidate.survivalScore = 0.0;
         candidate.hasSurvival = false;
+        candidate.worstFutureSafeMoves = parent.worstFutureSafeMoves;
+        candidate.worstNext2SafeMoves = parent.worstNext2SafeMoves;
+        candidate.survivalWarnings = parent.survivalWarnings;
+        candidate.survivalDrop = parent.survivalDrop;
+        candidate.trueTriggerPath = 0;
+        candidate.trueImmediateChains = 0;
+        candidate.trueFollowupChains = 0;
+        candidate.trueTriggerMoves = 0;
+        candidate.trueFollowupSafeMoves = 0;
         candidate.gameOver = deathMove;
 
         if (deathMove) death.push_back(std::move(candidate));
@@ -222,8 +251,22 @@ double survivalCorrection(const Node& n) {
     return n.survivalScore * std::clamp(protection, 0.52, 1.0);
 }
 
+double pathSurvivalCorrection(const Node& n) {
+    double penalty = 0.0;
+    if (n.worstFutureSafeMoves <= 0) penalty -= 90000.0;
+    else if (n.worstFutureSafeMoves == 1) penalty -= 30000.0;
+    else if (n.worstFutureSafeMoves == 2) penalty -= 9000.0;
+    else if (n.worstFutureSafeMoves == 3) penalty -= 2500.0;
+
+    if (n.worstNext2SafeMoves <= 0) penalty -= 18000.0;
+    else if (n.worstNext2SafeMoves == 1) penalty -= 6000.0;
+
+    penalty -= std::min(18000.0, static_cast<double>(n.survivalDrop) * 900.0);
+    return penalty;
+}
+
 double beamUtility(const Node& n) {
-    return n.score + survivalCorrection(n);
+    return n.score + survivalCorrection(n) + pathSurvivalCorrection(n);
 }
 
 bool betterForBeam(const Node& a, const Node& b) {
@@ -394,6 +437,26 @@ void applySurvivalProbe(
         node.bestNextGeometricMoves = h.bestNextGeometricMoves;
         node.bestNextSafeMoves = h.bestNextSafeMoves;
         node.survivalScore = survivalHorizonScore(h, previousSafeMoves, previousGeometricMoves);
+        node.trueTriggerPath = h.trueTriggerPath;
+        node.trueImmediateChains = h.trueImmediateChains;
+        node.trueFollowupChains = h.trueFollowupChains;
+        node.trueTriggerMoves = h.trueTriggerMoves;
+        node.trueFollowupSafeMoves = h.trueFollowupSafeMoves;
+
+        // Preserve the worst point reached anywhere on the path.  A branch
+        // that briefly reaches zero/one safe move is dangerous even if the
+        // following simulated placement happens to clear space again.
+        if (h.safeMoves >= 0) {
+            node.worstFutureSafeMoves = std::min(node.worstFutureSafeMoves, h.safeMoves);
+            if (h.safeMoves <= 3) ++node.survivalWarnings;
+        }
+        if (h.bestNextSafeMoves >= 0) {
+            node.worstNext2SafeMoves = std::min(node.worstNext2SafeMoves, h.bestNextSafeMoves);
+        }
+        if (previousSafeMoves >= 0 && h.safeMoves >= 0 && h.safeMoves < previousSafeMoves) {
+            node.survivalDrop += previousSafeMoves - h.safeMoves;
+        }
+
         // Keep the root-level mobility measurement attached to the root action
         // all the way to the final beam. It can then be used for a final safety
         // rescue without changing the intermediate construction search.
@@ -405,6 +468,7 @@ void applySurvivalProbe(
         node.hasSurvival = true;
     }
 }
+
 
 void applyVirtualRerank(std::vector<Node>& beam, int topM) {
     if (beam.empty() || topM <= 0) return;
@@ -475,6 +539,15 @@ void debugBeamSummary(const std::vector<Node>& beam, int depth, int beamWidth) {
             << " next2Geom=" << x.bestNextGeometricMoves
             << " next2Safe=" << x.bestNextSafeMoves
             << " survival=" << x.survivalScore
+            << " worstSafe=" << x.worstFutureSafeMoves
+            << " worstNext2Safe=" << x.worstNext2SafeMoves
+            << " survivalWarn=" << x.survivalWarnings
+            << " survivalDrop=" << x.survivalDrop
+            << " truePath=" << x.trueTriggerPath
+            << " trueNow=" << x.trueImmediateChains
+            << " trueFollow=" << x.trueFollowupChains
+            << " trueTrigMoves=" << x.trueTriggerMoves
+            << " trueFollowSafe=" << x.trueFollowupSafeMoves
             << " rootSafe=" << x.rootFutureSafeMoves
             << " structure=" << x.structure
             << " mainChain=" << x.mainChain.length()
@@ -513,11 +586,33 @@ double finalUtility(const Node& n) {
          n.construction * 0.06 -
          n.prematureRisk * 0.06) * constructionGate;
 
+    // A path that ever reaches a critically narrow horizon must carry that
+    // debt into the final comparison.  This is deliberately dormant while
+    // mobility is comfortable, so it does not turn the search into a generic
+    // "maximize empty space" policy.
+    const double pathSurvivalPenalty = pathSurvivalCorrection(n);
+
+    // When the actual visible pair has no way to start a chain, do not let an
+    // arbitrary-pair virtual probe masquerade as real firing power.  The
+    // penalty is strongest in the danger zone and is intentionally small on
+    // healthy boards.
+    double trueTriggerAdjustment = 0.0;
+    if (n.trueTriggerMoves == 0 && n.trueImmediateChains == 0) {
+        if (n.worstFutureSafeMoves <= 3 || n.worstNext2SafeMoves <= 1)
+            trueTriggerAdjustment -= 14000.0;
+        else if (n.worstFutureSafeMoves <= 5)
+            trueTriggerAdjustment -= 3500.0;
+    }
+    if (n.trueTriggerPath >= 3) trueTriggerAdjustment += 9000.0;
+    else if (n.trueTriggerPath >= 2) trueTriggerAdjustment += 3500.0;
+
     return n.score + static_cast<double>(n.maxChain) * 25000.0
          + n.virtualPotential
          + gatedConstruction
          + viability * (constructionGate < 0.65 ? 0.72 : 0.22)
-         + survival;
+         + survival
+         + pathSurvivalPenalty
+         + trueTriggerAdjustment;
 }
 
 bool betterFinal(const Node& a, const Node& b) {
