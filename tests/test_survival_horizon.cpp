@@ -29,6 +29,21 @@ int main() {
     assert(survivalHorizonScore({2, 5, 8}, 6) <
            survivalHorizonScore({5, 8, 12}, 6));
 
+    // Exact visible-piece trigger regression.  The arbitrary-pair virtual
+    // evaluator is not used here: the actual next pair must be able to start
+    // the chain.  A dangerous neighboring column forces the exact trigger
+    // probe to run.
+    Board triggerBoard;
+    for (int y = 0; y < 3; ++y)
+        triggerBoard.set(0, y, Cell::Red);
+    for (int y = 0; y < VISIBLE_HEIGHT; ++y)
+        triggerBoard.set(2, y, Cell::Blue);
+    PuyoPair triggerNext{1, 2}; // Red + Blue
+    const auto trigger = analyzeSurvivalHorizon(triggerBoard, &triggerNext, nullptr);
+    assert(trigger.trueImmediateChains >= 1);
+    assert(trigger.trueTriggerMoves >= 1);
+    assert(trigger.trueTriggerPath >= 1);
+
     std::cout << "survival horizon tests passed\n";
     return 0;
 }
