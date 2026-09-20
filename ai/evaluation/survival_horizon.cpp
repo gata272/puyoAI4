@@ -97,6 +97,44 @@ SurvivalHorizon analyzeSurvivalHorizon(
         if (nextNext) safeBoards.push_back(std::move(projected));
     }
 
+    // Exact visible-piece trigger probe.  This is intentionally limited to
+    // the narrow/terminal region: it answers a different question from
+    // virtualChainPotential -- "can the actual next pair start or continue a
+    // chain?"  This prevents an arbitrary-colour virtual route from masking a
+    // real shortage of the queued colours.
+    if (out.safeMoves <= 4 || maxHeight >= 12) {
+        for (const Move& move : moves) {
+            const SimulationResult sim = Simulator::drop(board, *next, move);
+            if (sim.gameOver && !sim.allClear) continue;
+
+            out.trueImmediateChains =
+                std::max(out.trueImmediateChains, sim.chains);
+            if (sim.chains > 0) ++out.trueTriggerMoves;
+            out.trueTriggerPath =
+                std::max(out.trueTriggerPath, sim.chains);
+
+            if (!nextNext) continue;
+
+            const auto followMoves = generateLegalMoves(sim.board, *nextNext);
+            int followSafe = 0;
+            int bestFollow = 0;
+            for (const Move& followMove : followMoves) {
+                const SimulationResult follow =
+                    Simulator::drop(sim.board, *nextNext, followMove);
+                if (follow.gameOver && !follow.allClear) continue;
+                ++followSafe;
+                bestFollow = std::max(bestFollow, follow.chains);
+            }
+
+            out.trueFollowupSafeMoves =
+                std::max(out.trueFollowupSafeMoves, followSafe);
+            out.trueFollowupChains =
+                std::max(out.trueFollowupChains, bestFollow);
+            out.trueTriggerPath =
+                std::max(out.trueTriggerPath, sim.chains + bestFollow);
+        }
+    }
+
     // Only inspect the second geometric horizon when the first horizon is
     // narrow. On exact-safety boards this uses the resolved post-chain board,
     // so a useful trigger-clearing move is not unfairly penalized.

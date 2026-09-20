@@ -21,6 +21,14 @@ struct SurvivalHorizon {
     // narrow, so it remains a cheap escape-route probe rather than a second
     // full search.
     int bestNextSafeMoves = -1;
+
+    // Exact probes using the actually visible next pair(s), as opposed to the
+    // arbitrary colour pairs used by virtual-chain potential.
+    int trueImmediateChains = 0;
+    int trueFollowupChains = 0;
+    int trueTriggerPath = 0;
+    int trueTriggerMoves = 0;
+    int trueFollowupSafeMoves = 0;
 };
 
 SurvivalHorizon analyzeSurvivalHorizon(
