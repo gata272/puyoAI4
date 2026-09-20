@@ -251,13 +251,22 @@ double survivalCorrection(const Node& n) {
     return n.survivalScore * std::clamp(protection, 0.52, 1.0);
 }
 
-// Path-level survival fields (worstFutureSafeMoves, worstNext2SafeMoves,
-// survivalDrop) remain diagnostic signals.  They are intentionally not folded
-// into utility: the benchmark A/B result showed that penalizing a temporary
-// narrow point can reject a construction that recovers on the next visible
-// placement, and the resulting early choices caused much earlier collapse.
+double pathSurvivalCorrection(const Node& n) {
+    double penalty = 0.0;
+    if (n.worstFutureSafeMoves <= 0) penalty -= 90000.0;
+    else if (n.worstFutureSafeMoves == 1) penalty -= 30000.0;
+    else if (n.worstFutureSafeMoves == 2) penalty -= 9000.0;
+    else if (n.worstFutureSafeMoves == 3) penalty -= 2500.0;
+
+    if (n.worstNext2SafeMoves <= 0) penalty -= 18000.0;
+    else if (n.worstNext2SafeMoves == 1) penalty -= 6000.0;
+
+    penalty -= std::min(18000.0, static_cast<double>(n.survivalDrop) * 900.0);
+    return penalty;
+}
+
 double beamUtility(const Node& n) {
-    return n.score + survivalCorrection(n);
+    return n.score + survivalCorrection(n) + pathSurvivalCorrection(n);
 }
 
 bool betterForBeam(const Node& a, const Node& b) {
@@ -577,6 +586,12 @@ double finalUtility(const Node& n) {
          n.construction * 0.06 -
          n.prematureRisk * 0.06) * constructionGate;
 
+    // A path that ever reaches a critically narrow horizon must carry that
+    // debt into the final comparison.  This is deliberately dormant while
+    // mobility is comfortable, so it does not turn the search into a generic
+    // "maximize empty space" policy.
+    const double pathSurvivalPenalty = pathSurvivalCorrection(n);
+
     // When the actual visible pair has no way to start a chain, do not let an
     // arbitrary-pair virtual probe masquerade as real firing power.  The
     // penalty is strongest in the danger zone and is intentionally small on
@@ -596,6 +611,7 @@ double finalUtility(const Node& n) {
          + gatedConstruction
          + viability * (constructionGate < 0.65 ? 0.72 : 0.22)
          + survival
+         + pathSurvivalPenalty
          + trueTriggerAdjustment;
 }
 
